@@ -11,7 +11,7 @@ GitHub Actions (after 3 PM NPT, Sun–Fri)
   └─ bot/fetch.py   → downloads today's prices for all stocks + NEPSE index (ShareSansar)
   └─ bot/engine.py  → executes yesterday's queued orders, marks to market, thinks, plans
   └─ bot/run.py     → saves state, rebuilds the historical simulation, writes docs/data/*.json
-  └─ git commit     → GitHub Pages serves docs/ as the live dashboard
+  └─ git commit     → docs/ is published to the gh-pages branch = the live dashboard
 ```
 
 ## The model: "Sagarmatha Signal Engine"
