@@ -27,7 +27,7 @@
 </header>
 
 <nav class="subnav"><div class="wrap">
-  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a>
+  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a>
   <a href="#log">Activity log</a><a href="#trades">Trades</a><a href="#costs">Costs</a><a href="#how">How it works</a>
 </div></nav>
 
@@ -61,10 +61,17 @@
       </div>
       <div class="card">
         <div class="card-h"><h3>Growth of Rs 5,00,000</h3>
-          <div class="seg" id="rangeSeg"><button data-r="30">1M</button><button data-r="90">3M</button><button class="on" data-r="0">All</button></div></div>
+          <div class="seg" id="rangeSeg"><button data-r="31">1M</button><button data-r="92">3M</button><button data-r="366">1Y</button><button class="on" data-r="0">All</button></div></div>
         <div class="chart"><canvas id="eqChart"></canvas></div>
-        <p class="hint">Green line = the bot. Grey line = what Rs 5,00,000 would be worth if it just followed the NEPSE index.</p>
+        <p class="hint">Green = the bot. Grey dashed = Rs 5,00,000 following the NEPSE index. Orange dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
       </div>
+    </div>
+
+    <div class="card mt" id="record">
+      <div class="card-h"><h3>📚 Track record</h3><span class="muted" id="recordNote"></span></div>
+      <div class="split" id="split"></div>
+      <div class="tablewrap"><table class="years" id="yearTable"></table></div>
+      <div class="models" id="models"></div>
     </div>
   </section>
 
@@ -81,7 +88,7 @@
   <!-- ===================== BRAIN -->
   <section id="brain">
     <h2>Inside the bot's brain 🧠</h2>
-    <p class="lead">Like Renaissance Technologies, the bot doesn't rely on one big idea. It combines <b>8 small statistical signals</b> and <b>learns from recent data how much to trust each one</b>. A signal that predicted well lately gets more weight; one that failed gets less, or even flips.</p>
+    <p class="lead">Like Renaissance Technologies, the bot doesn't rely on one big idea. It combines <b>8 small statistical signals</b> and <b>learns from recent data how much to trust each one</b>. Each signal starts from what <b>8 years of NEPSE research</b> found (the ▲ marker), then adjusts to how well it worked over the last year.</p>
     <div class="grid2">
       <div class="card">
         <h3>Signal trust levels <i class="tip" data-tip="Weight of each signal in the final score. Learned every day from how well each signal predicted the next 20 days of returns over the last 120 trading days.">?</i></h3>
@@ -98,6 +105,48 @@
       <span class="legend"><i class="neg"></i>weak <i class="mid"></i>neutral <i class="pos"></i>strong</span></div>
       <p class="hint">Each colored cell is how strongly a stock scores on one signal (in standard deviations vs other stocks). The final <b>Score</b> combines them using the trust levels above.</p>
       <div class="tablewrap"><table class="heat" id="heat"></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== RESEARCH -->
+  <section id="nepal">
+    <h2>What we learned about NEPSE 🇳🇵</h2>
+    <p class="lead">The bot's rules come from studying <b><span id="rsYears">—</span> of real NEPSE data</b>. To avoid fooling ourselves, the model was designed using data up to <b><span id="rsCut">—</span></b> only. Everything after that is a <b>hold-out test</b>: data the design never saw. A pattern counts as real only if it kept working in the hold-out.</p>
+    <div class="findings" id="findings"></div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>Which stock signals actually work? <i class="tip" data-tip="Average correlation (IC) between each signal and the next 20 days' returns. Positive = high score → higher future return. Bars show the design period vs the unseen hold-out.">?</i></h3>
+        <div class="chart tall"><canvas id="icChart"></canvas></div>
+        <p class="hint">A useful signal has bars of the same color and direction in both periods.</p>
+      </div>
+      <div class="card">
+        <h3>Signal strength, year by year</h3>
+        <div class="tablewrap"><table class="heat" id="icYears"></table></div>
+        <p class="hint">Green = worked that year, red = worked in reverse. Consistent color across years = a real, persistent pattern.</p>
+      </div>
+    </div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>Timing the market: does following the trend help?</h3>
+        <div class="chart"><canvas id="trendChart"></canvas></div>
+        <p class="hint">Average NEPSE return over the next 20 trading days, when the index is above vs below its moving average.</p>
+      </div>
+      <div class="card">
+        <h3>Market breadth → future returns</h3>
+        <div class="chart"><canvas id="breadthChart"></canvas></div>
+        <p class="hint">Breadth = share of stocks trading above their own 50-day average. Grouped into 5 buckets, from weakest to strongest breadth.</p>
+      </div>
+    </div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>NEPSE by calendar month</h3>
+        <div class="chart sm"><canvas id="monthChart"></canvas></div>
+        <p class="hint">Average NEPSE index change per month. Few years of data means this is mostly noise, so the bot does <b>not</b> trade on it.</p>
+      </div>
+      <div class="card">
+        <h3>NEPSE year by year</h3>
+        <div class="chart sm"><canvas id="yearChart"></canvas></div>
+      </div>
     </div>
   </section>
 
@@ -139,14 +188,14 @@
   <section id="how">
     <h2>How it works, step by step</h2>
     <ol class="steps">
-      <li><b>3:00 PM: market closes.</b> A GitHub Actions robot wakes up and downloads every stock's open, high, low, close, volume and average price (VWAP), plus the NEPSE index.</li>
-      <li><b>Filter.</b> It throws away mutual funds, bonds, debentures, promoter shares and illiquid stocks (under Rs 50 lakh traded per day) so it can actually buy and sell.</li>
-      <li><b>8 signals.</b> For every remaining stock it measures bounce-back potential, momentum, how stretched the price is, closing pressure, volume, calmness, trend quality and sector strength.</li>
-      <li><b>Learn.</b> It checks how well each signal predicted the next 20 days over the last 120 days (only past data, never the future) and sets its trust levels.</li>
-      <li><b>Rank &amp; review.</b> Signals × trust = one score per stock. Every 20 trading days (about a month) it reviews the whole portfolio: it buys from the top 10% and sells holdings that fell out of the top 40%. Trading less keeps fees low.</li>
-      <li><b>Risk check.</b> Max 10 stocks, max 15% in one stock, max 35% in one sector, less money in stocks when the NEPSE trend is down. Checked daily: an emergency exit at −15% from entry or −20% from the peak.</li>
-      <li><b>Next morning.</b> Orders "execute" at that day's VWAP + 0.25% slippage. Orders fail realistically if the stock is locked at the ±10% circuit or doesn't trade.</li>
-      <li><b>T+2.</b> Bought shares can't be sold until they settle (2 trading days). Then the cycle repeats every trading day.</li>
+      <li><b>3:00 PM: market closes.</b> A GitHub Actions robot wakes up and downloads every stock's open, high, low, close, volume and average price (VWAP), plus the NEPSE index. Holidays are skipped automatically.</li>
+      <li><b>Filter.</b> It drops mutual funds, bonds, debentures, promoter shares and the least-traded 40% of stocks, so every trade is realistic for a Rs 5 lakh account.</li>
+      <li><b>8 signals.</b> Chosen from 8 years of NEPSE research: closing pressure, low volatility, no lottery spikes, short-term bounce, near 52-week high, circuit chasing, momentum and size.</li>
+      <li><b>Learn.</b> Each signal's trust = 50% what 8 years of research says + 50% how well it predicted the next 20 days over the last year (only past data, never the future).</li>
+      <li><b>Never-buy rules.</b> No stock that hit the upper circuit today, hit the lower circuit in the last 5 days, or has the heaviest late-day closing pressure. These traps were the most reliable patterns in the research.</li>
+      <li><b>Review every 40 trading days.</b> Holds about 10–12 stocks (max 12% each, 35% per sector). It buys from the top 15% and keeps holdings while they stay in the top 35%. Trading less keeps NEPSE's fees and taxes from eating the returns.</li>
+      <li><b>Safety exits, checked daily.</b> −15% from entry, −22% from peak, or a lower-circuit day. Money in stocks is cut to 60% only in a confirmed bear market (NEPSE below a falling 200-day average).</li>
+      <li><b>Next session &amp; T+2.</b> Orders fill at that day's VWAP + 0.25% slippage, and fail if the stock is locked at a circuit. Bought shares can't be sold until they settle 2 trading days later.</li>
     </ol>
     <div class="grid3 mt">
       <div class="card gl"><b>VWAP</b><p>Volume-weighted average price: the average price everyone paid that day.</p></div>

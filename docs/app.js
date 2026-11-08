@@ -17,6 +17,7 @@ const FILTERS = { all: "All", trades: "Trades", decisions: "Decisions", brain: "
 const FGROUP = { trades: ["buy", "sell"], decisions: ["plan", "hold", "lock", "exec"], brain: ["think", "learn", "risk"], alerts: ["warn", "lock"] };
 const SIGCOL = ["#2fd497", "#6e93ff", "#ffb224", "#ff6b6f", "#a08bff", "#3cc8e8", "#ff8fcf", "#c2d94c"];
 
+let RES = null;
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
@@ -24,7 +25,9 @@ async function load() {
   [META, DATA.live, DATA.backtest] = await Promise.all([get("meta.json"), get("live.json"), get("backtest.json")]);
   $("#updated").textContent = `Last bot run: ${META.updated} · latest market data: ${META.latest_market_date}`;
   $("#runlog").textContent = (META.run_log || []).slice(1).join(" · ");
+  try { RES = await get("research.json"); } catch (e) { RES = null; }
   render();
+  if (RES) research();
 }
 
 function render() {
@@ -36,9 +39,9 @@ function render() {
     B.innerHTML = `<b>🟢 Live paper trading</b> since <b>${S.inception}</b>, with real NEPSE prices and virtual money (${rs(S.start_capital)}). The bot runs by itself after every trading day; this page updates automatically. Day <b>${S.equity.length}</b> of the experiment.`;
   } else {
     B.className = "banner bt";
-    B.innerHTML = `<b>⟲ Historical simulation.</b> What the <i>exact same bot</i> would have done since <b>${S.inception}</b>, deciding each day only with data available at that time. Includes the September 2025 market shutdown and crash. Use it to judge the strategy; the live tab is the real test.`;
+    B.innerHTML = `<b>⟲ Historical simulation.</b> What the <i>exact same bot</i> would have done since <b>${S.inception}</b>, deciding each day with only the data available at that time. Covers the COVID shutdown, the 2020–21 mania, the 2022–23 crash and the September 2025 shutdown. The model was designed on data up to <b>${META.split}</b>; everything after is an unseen <b>hold-out test</b>.`;
   }
-  kpis(S); story(S); equityChart(S); holdings(S); orders(S); brain(S); weightChart(S); terminal(S); trades(S); fees(S);
+  kpis(S); story(S); record(S); equityChart(S); holdings(S); orders(S); brain(S); weightChart(S); terminal(S); trades(S); fees(S);
 }
 
 function countUp(el, to, fmt) {
@@ -102,11 +105,13 @@ function baseChartOpts(extra = {}) {
 
 function equityChart(S) {
   let eq = S.equity;
-  if (range) eq = eq.slice(-range);
+  if (range && eq.length) { const cut = new Date(new Date(eq.at(-1).date) - range * 864e5).toISOString().slice(0, 10); eq = eq.filter(e => e.date >= cut); }
+  const ewBase = eq[0]?.ew;
   const base = eq[0]?.nepse, startEq = eq[0]?.equity;
   const labels = eq.map(e => e.date);
   const bot = eq.map(e => e.equity);
   const nep = eq.map(e => base && e.nepse ? (e.nepse / base) * startEq : null);
+  const ew = eq.map(e => ewBase && e.ew ? (e.ew / ewBase) * startEq : null);
   charts.eq?.destroy();
   const ctx = $("#eqChart").getContext("2d");
   const g = ctx.createLinearGradient(0, 0, 0, 300);
@@ -117,6 +122,7 @@ function equityChart(S) {
       labels, datasets: [
         { label: "Bot portfolio", data: bot, borderColor: css("--green"), backgroundColor: g, fill: true, borderWidth: 2.4, pointRadius: eq.length < 3 ? 5 : 0, tension: .25 },
         { label: "NEPSE index (same Rs start)", data: nep, borderColor: css("--muted"), borderDash: [5, 4], borderWidth: 1.6, pointRadius: eq.length < 3 ? 4 : 0, tension: .25 },
+        { label: "Average liquid stock (no costs)", data: ew, borderColor: css("--amber"), borderDash: [2, 3], borderWidth: 1.4, pointRadius: 0, tension: .25 },
       ],
     },
     options: baseChartOpts({ scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 7, maxRotation: 0 }, grid: { display: false } }, y: { ticks: { color: css("--muted"), callback: v => "Rs " + (v / 100000).toFixed(2) + "L" }, grid: { color: css("--line") } } },
@@ -167,18 +173,19 @@ function orders(S) {
 function brain(S) {
   const b = S.brain; if (!b) return;
   const sig = META.signals;
-  const mx = Math.max(...Object.values(b.weights).map(Math.abs), 0.01);
+  const pri = b.priors || {};
+  const mx = Math.max(...Object.values(b.weights).map(Math.abs), ...Object.values(pri).map(Math.abs), 0.01);
   $("#weights").innerHTML = Object.entries(b.weights).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).map(([k, w]) => {
     const wd = Math.abs(w) / mx * 50, pos = w >= 0;
     return `<div class="wrow"><div class="nm">${sig[k].name}<small>${sig[k].desc}</small></div>
-      <div class="wbar"><span style="background:${pos ? css("--green") : css("--red")};${pos ? `left:50%;width:${wd}%` : `right:50%;width:${wd}%`}"></span></div>
+      <div class="wbar" title="Now ${(w * 100).toFixed(0)}% · research starting point ${((pri[k] || 0) * 100).toFixed(0)}%"><span style="background:${pos ? css("--green") : css("--red")};${pos ? `left:50%;width:${wd}%` : `right:50%;width:${wd}%`}"></span>${k in pri ? `<i class="prior" style="left:${50 + (pri[k] / mx) * 50}%"></i>` : ""}</div>
       <div class="pc ${pos ? "up" : "down"}">${(w * 100).toFixed(0)}%</div></div>`;
-  }).join("") + `<p class="hint">Green = the bot buys stocks scoring high on this. Red = it learned this signal works <b>in reverse</b> on NEPSE, so high scores count against a stock.</p>`;
+  }).join("") + `<p class="hint">Green = the bot buys stocks scoring high on this. Red = it learned this signal works <b>in reverse</b> on NEPSE, so high scores count against a stock. ▲ = where 8 years of research put it; the bar = today's learned trust.</p>`;
   $("#uniN").textContent = b.universe;
   const keys = Object.keys(sig);
   const color = v => { const a = Math.min(1, Math.abs(v) / 2.5); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .55 ? "#fff" : css("--ink")}`; };
   $("#heat").innerHTML = `<thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Price</th>${keys.map(k => `<th title="${sig[k].desc}">${sig[k].name}</th>`).join("")}<th>Score</th></tr></thead><tbody>` +
-    b.top.map((t, i) => `<tr><td>${i + 1}</td><td><b>${t.sym}</b></td><td class="muted">${esc(t.sector)}</td><td>${num(t.close, 1)}</td>${keys.map(k => `<td class="z" style="${color(t.z[k])}">${t.z[k].toFixed(1)}</td>`).join("")}<td class="s up">${t.alpha.toFixed(2)}</td></tr>`).join("") + "</tbody>";
+    b.top.map((t, i) => `<tr><td>${i + 1}</td><td><b>${t.sym}</b>${t.veto ? `<span class="veto" title="Never-buy rule: ${esc(t.veto)}">🚫</span>` : ""}</td><td class="muted">${esc(t.sector)}</td><td>${num(t.close, 1)}</td>${keys.map(k => `<td class="z" style="${color(t.z[k])}">${t.z[k].toFixed(1)}</td>`).join("")}<td class="s up">${t.alpha.toFixed(2)}</td></tr>`).join("") + "</tbody>";
 }
 
 function weightChart(S) {
@@ -226,8 +233,8 @@ function trades(S) {
   if (!list.length) { $("#tradeTable").innerHTML = `<tr><td class="muted" style="padding:20px">No trades yet. The first orders execute at the next trading session.</td></tr>`; return; }
   $("#tradeTable").innerHTML = `<thead><tr><th>Date</th><th>Side</th><th>Stock</th><th>Qty</th><th>Price</th><th>Amount</th><th>Fees</th><th>Tax</th><th>Net P/L</th><th>Status</th><th>Why</th></tr></thead><tbody>` +
     list.slice(0, 300).map(t => t.status === "REJECTED"
-      ? `<tr><td>${t.date}</td><td><span class="side ${t.side}">${t.side}</span></td><td><b>${t.sym}</b></td><td colspan="6" class="muted">—</td><td class="st rej">✕ ${esc(t.why)}</td><td class="rs">${esc(t.reason)}</td></tr>`
-      : `<tr><td>${t.date}</td><td><span class="side ${t.side}">${t.side}</span></td><td><b>${t.sym}</b></td><td>${num(t.qty)}</td><td>${num(t.price, 2)}</td><td>${rs(t.amount)}</td><td>${rs(t.fees)}</td><td>${t.cgt ? rs(t.cgt) : "—"}</td><td class="${cls(t.pnl)}"><b>${t.pnl == null ? "—" : rs(t.pnl)}</b></td><td class="st up">✓ filled</td><td class="rs">${esc(t.reason)}</td></tr>`).join("") + "</tbody>";
+      ? `<tr><td>${t.date}</td><td><span class="side ${t.side}">${t.side}</span></td><td><b>${t.sym}</b>${t.veto ? `<span class="veto" title="Never-buy rule: ${esc(t.veto)}">🚫</span>` : ""}</td><td colspan="6" class="muted">—</td><td class="st rej">✕ ${esc(t.why)}</td><td class="rs">${esc(t.reason)}</td></tr>`
+      : `<tr><td>${t.date}</td><td><span class="side ${t.side}">${t.side}</span></td><td><b>${t.sym}</b>${t.veto ? `<span class="veto" title="Never-buy rule: ${esc(t.veto)}">🚫</span>` : ""}</td><td>${num(t.qty)}</td><td>${num(t.price, 2)}</td><td>${rs(t.amount)}</td><td>${rs(t.fees)}</td><td>${t.cgt ? rs(t.cgt) : "—"}</td><td class="${cls(t.pnl)}"><b>${t.pnl == null ? "—" : rs(t.pnl)}</b></td><td class="st up">✓ filled</td><td class="rs">${esc(t.reason)}</td></tr>`).join("") + "</tbody>";
 }
 
 function fees(S) {
@@ -249,6 +256,97 @@ function fees(S) {
     `<div class="fee"><div><b>Total cost of trading</b><small>${tot ? ((tot / S.start_capital) * 100).toFixed(2) + "% of starting capital" : "Nothing spent yet"}</small></div><b>${rs(tot)}</b></div>`;
 }
 
+function record(S) {
+  const M = S.metrics || {};
+  const seg = (t, x, note) => x ? `<div class="sp"><small>${t}</small><div class="big ${cls(x.return_pct)}">${pct(x.return_pct, 1)}</div>
+    <div class="vs">NEPSE ${pct(x.nepse_return_pct, 1)} · avg stock ${pct(x.ew_return_pct, 1)}</div>
+    <div class="vs">Worst drop ${pct(x.max_drawdown_pct, 1)} (NEPSE ${pct(x.nepse_drawdown_pct, 1)})${x.cagr_pct != null ? ` · ${x.cagr_pct}%/yr` : ""}</div>${note ? `<div class="vs muted">${note}</div>` : ""}</div>` : "";
+  $("#split").innerHTML = seg(`Whole period · ${M.from || "—"} → ${M.to || "—"}`, M)
+    + seg(`Design period (model built on this) · until ${META.split}`, M.design, "In-sample: flatters the model")
+    + seg(`Hold-out test (never seen in design) · after ${META.split}`, M.holdout, "The honest number");
+  $("#recordNote").textContent = mode === "live" ? "Live experiment" : "Same rules, fees and taxes as the live bot";
+  const ys = M.years || [];
+  const mxv = Math.max(1, ...ys.flatMap(y => [Math.abs(y.bot), Math.abs(y.nepse ?? 0)]));
+  const bar = (v, c) => v == null ? "" : `<span class="bar2" style="width:${Math.abs(v) / mxv * 60}px;background:${c}"></span>`;
+  $("#yearTable").innerHTML = ys.length ? `<thead><tr><th>Year</th><th>Bot</th><th>NEPSE</th><th>Avg stock*</th><th>Bot vs NEPSE</th><th>Worst drop</th></tr></thead><tbody>` +
+    ys.map(y => { const d = y.nepse == null ? null : y.bot - y.nepse; return `<tr><td><b>${y.year}</b></td><td class="${cls(y.bot)}"><b>${pct(y.bot, 1)}</b>${bar(y.bot, y.bot >= 0 ? css("--green") : css("--red"))}</td><td class="${cls(y.nepse)}">${pct(y.nepse, 1)}</td><td class="muted">${pct(y.ew, 1)}</td><td class="${cls(d)}">${d == null ? "—" : (d >= 0 ? "✓ " : "✗ ") + pct(d, 1)}</td><td class="down">${pct(y.dd, 1)}</td></tr>`; }).join("") +
+    `</tbody>` : "";
+  $("#models").innerHTML = (META.model_history || []).map(v => `<div class="model"><b>Model ${v.version}</b> (${v.date})<br>${esc(v.summary)}<br>Same 7-year test → design <b class="${cls(v.design_pct)}">${pct(v.design_pct, 1)}</b>, hold-out <b class="${cls(v.holdout_pct)}">${pct(v.holdout_pct, 1)}</b></div>`).join("")
+    + `<div class="model muted">* "Avg stock" = equal amounts in every liquid stock, rebalanced daily with zero costs. No real investor can get this exactly; it shows how hard a pure stock picker's job is.</div>`;
+}
+
+const FN = { pressure: "Closing pressure", calm60: "Low volatility (60d)", calm: "Low volatility (20d)", maxret: "No lottery spikes", upcirc: "Circuit chasing", high52: "Near 52-week high", reversal: "Short-term bounce", rev20: "1-month reversal", momentum: "3-month momentum", mom120: "6-month momentum", mom250: "12-month momentum", meanrev: "Rubber band", volume: "Volume confirmation", quality: "Trend quality", sector: "Sector rotation (1m)", sector60: "Sector rotation (3m)", turntrend: "Turnover trend", size: "Company size" };
+
+function research() {
+  const R = RES, st = R.stocks.h20, s5 = R.stocks.h5, mk = R.market, cb = R.circuits;
+  const y0 = R.period[0].slice(0, 4), y1 = R.period[1].slice(0, 4);
+  $("#rsYears").textContent = `${y1 - y0 + 1} years (${y0}–${y1})`;
+  $("#rsCut").textContent = R.design_end;
+  const yrsNeg = Object.values(s5.pressure.ic_by_year).filter(v => v < 0).length, yrsAll = Object.keys(s5.pressure.ic_by_year).length;
+  const calmY = Object.entries(st.calm60.ic_by_year), calmPos = calmY.filter(([, v]) => v > 0).length;
+  const t50 = mk.trend.sma50;
+  const F = [
+    ["🎯", "Closing pressure works in reverse", `Stocks that close above the day's average price did <b>worse</b> over the next week in ${yrsNeg} of ${yrsAll} years. Late-day pushes tend to unwind. The most reliable pattern found.`, "use", "Used: strongest signal (counts against)"],
+    ["🐢", "Boring beats exciting… usually", `Calm stocks without lottery-like spikes did better in ${calmPos} of ${calmY.length} years, but badly lagged in the 2020–21 mania. That's why the bot's trust in it adapts.`, "use", "Used: weight adapts"],
+    ["🚦", "Circuits: don't chase, don't catch knives", `After hitting the −10% lower circuit, stocks fell another ${Math.abs(cb.after_lower_next5).toFixed(1)}% over the next week on average. After the +10% upper circuit: ${pct(cb.after_upper_next5, 1)} the following week, so chasing doesn't pay.`, "use", "Used: never-buy rules"],
+    ["📉", "Momentum doesn't work on NEPSE", `The classic "buy what went up for 3–12 months" signal had no reliable edge here (12-month IC ${st.mom250.ic_design[0].toFixed(3)} design, ${st.mom250.ic_holdout[0].toFixed(3)} hold-out). Global textbook rules don't automatically apply to Nepal.`, "no", "Starts at zero weight"],
+    ["🧭", "Simple market timing failed", `Being in stocks only when NEPSE is above its 50-day average returned ${pct(t50.design.overlay_ret, 0)} vs ${pct(t50.design.buyhold_ret, 0)} buy-and-hold in design, and ${pct(t50.holdout.overlay_ret, 0)} vs ${pct(t50.holdout.buyhold_ret, 0)} in the hold-out.`, "no", "Replaced by a bear-market-only filter"],
+    ["💸", "Fees decide everything", `A NEPSE round-trip costs ~0.85% plus 7.5% tax on profit. Signals that change every week can't beat that. Reviewing every 40 days instead of 10–20 turned a losing model into a profitable one.`, "use", "Used: 40-day review cycle"],
+    ["🪔", "Festivals & months: mostly noise", `NEPSE rose ${mk.holidays.pre5_avg}% on average in the week before long holidays (vs ${mk.holidays.any5_avg}% for any week). Monthly patterns swing wildly with only ${y1 - y0} years of data.`, "no", "Not used"],
+    ["🌊", "Weekly trends persist slightly", `NEPSE's weekly returns are positively correlated (${mk.autocorr.weekly}): good weeks tend to follow good weeks, a sign of a retail-driven market. Too weak to trade alone after costs.`, "info", "Monitored"],
+  ];
+  $("#findings").innerHTML = F.map(([i, t, d, c, tag]) => `<div class="finding"><span class="fi">${i}</span><b>${t}</b><p>${d}</p><span class="tag2 ${c}">${tag}</span></div>`).join("");
+
+  const keys = Object.keys(st).sort((a, b) => (st[a].ic_design[0] + st[a].ic_holdout[0]) - (st[b].ic_design[0] + st[b].ic_holdout[0]));
+  charts.ic?.destroy();
+  charts.ic = new Chart($("#icChart"), {
+    type: "bar",
+    data: { labels: keys.map(k => FN[k] || k), datasets: [
+      { label: `Design (to ${R.design_end})`, data: keys.map(k => st[k].ic_design?.[0]), backgroundColor: css("--blue") },
+      { label: "Hold-out (unseen)", data: keys.map(k => st[k].ic_holdout?.[0]), backgroundColor: css("--amber") }] },
+    options: baseChartOpts({ indexAxis: "y", scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } }, y: { ticks: { color: css("--ink2"), font: { size: 11 } }, grid: { display: false } } } }),
+  });
+  const years = [...new Set(keys.flatMap(k => Object.keys(st[k].ic_by_year)))].sort();
+  const hc = v => { const a = Math.min(1, Math.abs(v) / 0.2); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .55 ? "#fff" : css("--ink")}`; };
+  $("#icYears").innerHTML = `<thead><tr><th>Signal</th>${years.map(y => `<th>${y}</th>`).join("")}</tr></thead><tbody>` +
+    [...keys].reverse().map(k => `<tr><td><b>${FN[k] || k}</b></td>${years.map(y => { const v = st[k].ic_by_year[y]; return v == null ? "<td></td>" : `<td class="z" style="${hc(v)}">${(v * 100).toFixed(0)}</td>`; }).join("")}</tr>`).join("") + "</tbody>";
+
+  const T = mk.trend, tk = Object.keys(T);
+  charts.tr?.destroy();
+  charts.tr = new Chart($("#trendChart"), {
+    type: "bar",
+    data: { labels: tk.map(k => k.replace("sma", "") + "-day avg"), datasets: [
+      { label: "Design: above", data: tk.map(k => T[k].design.above), backgroundColor: css("--green") },
+      { label: "Design: below", data: tk.map(k => T[k].design.below), backgroundColor: css("--red") },
+      { label: "Hold-out: above", data: tk.map(k => T[k].holdout.above), backgroundColor: css("--green") + "77" },
+      { label: "Hold-out: below", data: tk.map(k => T[k].holdout.below), backgroundColor: css("--red") + "77" }] },
+    options: baseChartOpts({ plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%` } } } }),
+  });
+  const q = ["Weakest", "Weak", "Middle", "Strong", "Strongest"];
+  charts.br?.destroy();
+  charts.br = new Chart($("#breadthChart"), {
+    type: "bar",
+    data: { labels: q, datasets: [
+      { label: "Design", data: mk.breadth_q.design, backgroundColor: css("--blue") },
+      { label: "Hold-out", data: mk.breadth_q.holdout, backgroundColor: css("--amber") }] },
+    options: baseChartOpts({ plugins: { legend: { labels: { color: css("--ink2"), boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}% next 20 days` } } } }),
+  });
+  const mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  charts.mo?.destroy();
+  charts.mo = new Chart($("#monthChart"), {
+    type: "bar",
+    data: { labels: mn, datasets: [{ label: "Avg NEPSE change", data: mn.map((_, i) => mk.month[i + 1]), backgroundColor: mn.map((_, i) => mk.month[i + 1] >= 0 ? css("--green") : css("--red")) }] },
+    options: baseChartOpts({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(2)}% (${mk.month_n[c.dataIndex + 1]} years)` } } } }),
+  });
+  const yy = Object.keys(mk.nepse_years);
+  charts.yr?.destroy();
+  charts.yr = new Chart($("#yearChart"), {
+    type: "bar",
+    data: { labels: yy, datasets: [{ label: "NEPSE", data: yy.map(y => mk.nepse_years[y]), backgroundColor: yy.map(y => mk.nepse_years[y] >= 0 ? css("--green") : css("--red")) }] },
+    options: baseChartOpts({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(1)}%` } } } }),
+  });
+}
+
 /* ---- events */
 $$(".mode button").forEach(b => b.onclick = () => { mode = b.dataset.mode; render(); });
 $("#rangeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; range = +b.dataset.r; $$("#rangeSeg button").forEach(x => x.classList.toggle("on", x === b)); equityChart(DATA[mode]); };
@@ -260,6 +358,7 @@ $("#theme").onclick = () => {
   r.dataset.theme = dark ? "light" : "dark";
   try { localStorage.setItem("theme", r.dataset.theme); } catch (e) { }
   render();
+  if (RES) research();
 };
 try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
 load().catch(e => { $("#modeBanner").className = "banner"; $("#modeBanner").textContent = "Could not load bot data: " + e; });

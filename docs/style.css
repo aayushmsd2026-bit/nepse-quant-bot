@@ -167,3 +167,25 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-v
 #trades .tablewrap{max-height:560px;overflow:auto}
 #trades thead th{position:sticky;top:0;background:var(--card);z-index:1}
 @media (max-width:640px){.mode .long{display:none}}
+
+/* research */
+.chart.tall{height:420px}
+.findings{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.finding{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:var(--shadow)}
+.finding .fi{font-size:22px}.finding > b{display:block;margin:6px 0 4px;font-size:15px}
+.finding p{margin:0;color:var(--ink2);font-size:13.5px}
+.finding .tag2{display:inline-block;margin-top:10px;font:600 11px Inter;padding:3px 8px;border-radius:20px}
+.tag2.use{background:var(--green-s);color:var(--green)}.tag2.no{background:var(--red-s);color:var(--red)}.tag2.info{background:color-mix(in srgb,var(--blue) 14%,transparent);color:var(--blue)}
+
+/* track record */
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:6px 0 14px}
+.sp{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg)}
+.sp small{color:var(--muted);font-size:12px;display:block}.sp .big{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.sp .vs{font-size:12.5px;color:var(--ink2)}
+.years td,.years th{text-align:right}.years td:first-child,.years th:first-child{text-align:left}
+.years .bar2{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;margin-left:6px}
+.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:14px}
+.model{border:1px dashed var(--line);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--ink2)}
+.model b{color:var(--ink)}
+.wbar .prior{position:absolute;top:-3px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:7px solid var(--ink);transform:translateX(-5px);bottom:auto;z-index:2;opacity:.7}
+.veto{font-size:11px;margin-left:4px;cursor:help}

@@ -24,7 +24,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-PRICES = DATA / "prices.csv"
+PRICES_DIR = DATA / "prices"          # one CSV per calendar year: small daily git diffs
 INDEX = DATA / "nepse_index.csv"
 SECTORS = DATA / "sectors.json"
 
@@ -67,17 +67,22 @@ class Client:
     def _post(self, url, data):
         if self.token is None:
             self._refresh_token()
-        data = {"_token": self.token, **data}
         hdr = {"X-Requested-With": "XMLHttpRequest", "Referer": f"{BASE}/today-share-price"}
-        return self._retry(lambda: self.s.post(url, data=data, headers=hdr, timeout=40))
+        for attempt in range(3):
+            r = self._retry(lambda: self.s.post(url, data={"_token": self.token, **data},
+                                                headers=hdr, timeout=40), ok=(200, 419))
+            if r.status_code == 200:
+                return r
+            self._refresh_token()  # 419 = session/CSRF token expired
+        raise RuntimeError("session token keeps expiring")
 
     @staticmethod
-    def _retry(fn, tries=5):
+    def _retry(fn, tries=5, ok=(200,)):
         err = None
         for i in range(tries):
             try:
                 r = fn()
-                if r.status_code == 200:
+                if r.status_code in ok:
                     return r
                 err = RuntimeError(f"HTTP {r.status_code}")
             except requests.RequestException as e:  # network hiccup
@@ -140,21 +145,37 @@ def parse_price_table(text: str, date: str) -> list[dict]:
     return out
 
 
+def year_files() -> list[Path]:
+    return sorted(PRICES_DIR.glob("*.csv"))
+
+
 def load_dates() -> set[str]:
-    if not PRICES.exists():
-        return set()
-    with PRICES.open() as f:
-        return {r["date"] for r in csv.DictReader(f)}
+    out = set()
+    for f in year_files():
+        with f.open() as fh:
+            out |= {r["date"] for r in csv.DictReader(fh)}
+    return out
 
 
 def append_rows(rows: list[dict]):
-    new = not PRICES.exists()
-    with PRICES.open("a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
-        if new:
+    """Merge rows into the per-year files, keeping each file sorted by (date, symbol)."""
+    PRICES_DIR.mkdir(parents=True, exist_ok=True)
+    by_year: dict[str, list[dict]] = {}
+    for r in rows:
+        by_year.setdefault(r["date"][:4], []).append(r)
+    for y, new in by_year.items():
+        f = PRICES_DIR / f"{y}.csv"
+        old = []
+        if f.exists():
+            with f.open() as fh:
+                old = list(csv.DictReader(fh))
+        merged = {(r["date"], r["symbol"]): r for r in old}
+        merged.update({(r["date"], r["symbol"]): r for r in new})
+        with f.open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=FIELDS, extrasaction="ignore")
             w.writeheader()
-        for r in sorted(rows, key=lambda r: (r["date"], r["symbol"])):
-            w.writerow(r)
+            for k in sorted(merged):
+                w.writerow(merged[k])
 
 
 def fetch_range(start: dt.date, end: dt.date, workers: int = 4) -> list[str]:
@@ -170,36 +191,53 @@ def fetch_range(start: dt.date, end: dt.date, workers: int = 4) -> list[str]:
         i, d = i_d
         return d, clients[i % workers].day(d)
 
-    got = []
+    saved = []
     with ThreadPoolExecutor(workers) as ex:
-        for d, rows in ex.map(job, enumerate(todo)):
-            if rows:
-                got.append((d, rows))
-                print(f"  {d}: {len(rows)} stocks", flush=True)
-    for d, rows in sorted(got):
-        append_rows(rows)
-    return [d for d, _ in sorted(got)]
+        for c0 in range(0, len(todo), 90):          # save progress every ~3 months
+            got = []
+            for d, rows in ex.map(job, enumerate(todo[c0:c0 + 90])):
+                if rows:
+                    got.append((d, rows))
+                    print(f"  {d}: {len(rows)} stocks", flush=True)
+            append_rows([r for _, rows in got for r in rows])
+            saved += [d for d, _ in got]
+    return sorted(saved)
 
 
-def fetch_sectors():
+def fetch_sectors(history: bool = False):
+    """Map symbol -> sector. With history=True also sample one day per quarter in
+    the past, so stocks that later merged or delisted still get a sector
+    (reduces survivorship bias in the historical simulation)."""
     c = Client()
-    latest = max(load_dates()) if PRICES.exists() else dt.date.today().isoformat()
-    mapping = {}
-    for sid, name in SECTOR_IDS.items():
-        for r in c.day(latest, sid):
-            mapping[r["symbol"]] = name
+    dates = sorted(load_dates())
+    sample = [dates[-1]]
+    if history:
+        seen = set()
+        for d in dates:
+            q = (d[:4], (int(d[5:7]) - 1) // 3)
+            if q not in seen:
+                seen.add(q)
+                sample.append(d)
+    mapping = json.loads(SECTORS.read_text()) if SECTORS.exists() else {}
+    for d in sorted(set(sample)):          # oldest first, so the latest date wins
+        for sid, name in SECTOR_IDS.items():
+            for r in c.day(d, sid):
+                mapping[r["symbol"]] = name
     SECTORS.write_text(json.dumps(dict(sorted(mapping.items())), indent=1))
     print(f"sectors: {len(mapping)} symbols mapped")
 
 
 def fetch_index(start: str):
+    """Download NEPSE index history from `start` and merge it into the stored file."""
     rows = Client().index_history(start, (dt.date.today() + dt.timedelta(1)).isoformat())
-    rows = sorted({r["date"]: r for r in rows}.values(), key=lambda r: r["date"])
+    old = list(csv.DictReader(INDEX.open())) if INDEX.exists() else []
+    merged = {r["date"]: r for r in old}
+    merged.update({r["date"]: r for r in rows})
     with INDEX.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["date", "open", "high", "low", "close", "turnover"])
         w.writeheader()
-        w.writerows(rows)
-    print(f"index: {len(rows)} days")
+        w.writerows(merged[d] for d in sorted(merged))
+    print(f"index: {len(merged)} days ({len(rows)} fetched)")
 
 
 def update_latest() -> list[str]:
@@ -207,9 +245,8 @@ def update_latest() -> list[str]:
     have = load_dates()
     last = dt.date.fromisoformat(max(have)) if have else dt.date.today() - dt.timedelta(30)
     new = fetch_range(last + dt.timedelta(1), dt.date.today(), workers=2)
-    first = min(have) if have else last.isoformat()
-    fetch_index(first)
-    if new and (not SECTORS.exists() or dt.date.today().weekday() == 6):
+    fetch_index((last - dt.timedelta(10)).isoformat())
+    if new and (not SECTORS.exists() or dt.date.today().weekday() == 6):  # refresh on Sundays
         fetch_sectors()
     return new
 
@@ -221,8 +258,8 @@ if __name__ == "__main__":
         start = dt.date.fromisoformat(sys.argv[2])
         fetch_range(start, dt.date.today())
         fetch_index(start.isoformat())
-        fetch_sectors()
+        fetch_sectors(history=True)
     elif cmd == "sectors":
-        fetch_sectors()
+        fetch_sectors(history=True)
     else:
         print("new days:", update_latest())

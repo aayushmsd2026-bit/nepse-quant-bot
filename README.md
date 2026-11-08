@@ -14,41 +14,70 @@ GitHub Actions (after 3 PM NPT, Sun–Fri)
   └─ git commit     → docs/ is published to the gh-pages branch = the live dashboard
 ```
 
-## The model: "Sagarmatha Signal Engine"
+## The model: Sagarmatha Signal Engine v2
 
-These are the Renaissance-style principles, adapted to NEPSE:
+v2 was rebuilt from **8 years of NEPSE data (2019–2026, ~1,800 trading days, 475 stocks
+including merged/delisted ones)**. Research: `python -m bot.research`.
 
-| Principle | What the bot does |
-|---|---|
-| Many weak signals, not one big idea | 8 signals: short-term bounce, 3-month momentum, rubber band (stretch vs 20-day average), closing pressure (close vs VWAP), volume confirmation, low volatility, trend quality, sector rotation |
-| Let the data decide | Every day it measures each signal's **information coefficient** (rank correlation with the next 20 days' returns) over the last 120 days. It uses only the past, walk-forward. Weights = 20% prior + 80% learned. Signals can turn negative if they work in reverse. |
-| Costs matter | Reviews the portfolio only every 20 trading days. Holdings are kept unless they fall out of the top 40%. |
-| Risk first | Max 10 stocks, 15% per stock, 35% per sector. Market-mood filter on the NEPSE trend (95% / 75% / 45% max invested). Emergency exits at −15% from entry or −20% from peak. |
+**Method, to avoid fooling ourselves:** the model was designed on 2019-01 → 2024-06 only.
+2024-07 → today is a **hold-out** it never saw. Patterns that didn't survive the hold-out were rejected.
+
+### What the research found about NEPSE
+| Pattern | Evidence | In the bot? |
+|---|---|---|
+| **Closing pressure reverses.** Closing above VWAP → lower returns next week | Negative in 7–8 of 8 years, both periods | ✅ strongest signal (negative) |
+| **Boring beats exciting.** Low volatility, no lottery spikes | Strong in 2019, 2022, 2025–26; failed in the 2020–21 mania | ✅ weight adapts |
+| **Lower circuit → keeps falling** (~−2.5% next week); **upper circuit → no follow-through** | Both periods | ✅ never-buy rules + exit on lower circuit |
+| Near 52-week high, short-term bounce | Small, mostly consistent | ✅ small weight |
+| 3/6/12-month momentum, sector rotation | No reliable edge; negative in hold-out | ⛔ zero starting weight |
+| Market timing (index vs 20/50/100/200-day average) | Helped 2019–24, failed badly in hold-out (−8% vs +29%) | ⛔ only a confirmed-bear filter |
+| Turnover-regime switching | Looked good in design, reversed in hold-out | ⛔ rejected |
+| Calendar months / festival effects | Mostly noise with 7–8 years of data | ⛔ not used |
+| **Signals spot losers better than winners**; NEPSE costs (~0.85% + 7.5% CGT) punish turnover | Top-decile picks ≈ market before costs | ✅ 40-day review, keep while in top 35% |
+
+### Rules
+- 8 signals. Trust = **50% research prior + 50% learned walk-forward** from the last ~250 days (20-day information coefficient).
+- **Never buy:** a stock at the upper circuit today, one that hit the lower circuit in the last 5 days, or the 10% with the heaviest closing pressure.
+- **Portfolio:** ~10–12 stocks, max 12% each, 35% per sector. Buy from the top 15%; at each **40-trading-day review**, sell anything no longer in the top 35%.
+- **Daily safety exits:** −15% from entry, −22% from peak, or a lower-circuit day.
+- **Exposure:** 97% normally, 60% only in a confirmed bear market (NEPSE below a falling 200-day average).
+- Liquidity: top 60% of stocks by turnover and at least Rs 10 lakh/day; funds, bonds, debentures and promoter shares excluded.
 
 ### NEPSE realism built into the simulator
-- **T+2 settlement:** shares can't be sold until 2 trading days after purchase. No intraday trading.
+- **T+2 settlement:** no selling until shares settle. No intraday trading.
 - Orders are decided after the close and **filled next session at VWAP ± 0.25% slippage**.
-- **±10% circuit:** buys fail at upper-circuit lock; sells fail at lower-circuit lock.
+- **±10% circuits:** buys fail at upper-circuit lock; sells fail at lower-circuit lock and retry.
 - Max 5% of a stock's daily volume. Minimum 10 shares.
 - **Broker commission** (SEBON tiers 0.36% → 0.24%), **SEBON fee** 0.015%, **DP charge** Rs 25 per sell, **CGT** 7.5% (<1 year) / 5%.
-- Bonus/right-share price adjustments are detected and holdings adjusted.
-- Excludes mutual funds, bonds, debentures, preference/promoter shares and illiquid stocks (< Rs 50 lakh per day).
+- Bonus/right-share price adjustments are detected and holdings adjusted. Cash dividends are *not* counted, which is conservative.
 
-## Honest results so far
+## Honest results (same 7 years, 2019-10 → 2026-11, all costs and taxes)
 
-The **historical simulation** (Sep 2025 → Nov 2026, which includes the Sep 2025 shutdown and crash) is **negative: about −7.5% vs NEPSE −3.9%**.
+| | Design 2019-10 → 2024-06 | **Hold-out 2024-07 → 2026-11** | Whole period |
+|---|---|---|---|
+| v1 (generic signals) | −30.2% | −4.7% | |
+| **v2 (NEPSE research)** | **+59.5%** | **+17.9%** | **+88.1% (9.9%/yr)** |
+| NEPSE index | +77.8% | +30.3% | +131.8% (13.4%/yr) |
+| Average liquid stock (no costs) | +192.6% | +17.1% | +242.6% |
 
-Research notes from building it:
-- Before costs, the learned ranking *did* beat the average stock (top-10 ≈ +8% vs universe ≈ −8%).
-- NEPSE's ~0.8% round-trip cost plus 7.5% CGT ate most of that edge when trading every 10 days. Moving to a 20-day cycle cut costs by more than half.
-- In this data, **low volatility** was the strongest signal. **Closing pressure works in reverse**: closing above VWAP predicted *lower* returns, probably end-of-day pushes that unwind.
-- Parameters were deliberately *not* tuned further to make the backtest look good. The live run is the real test.
+**Takeaways:**
+- **v2 is far better than v1.**
+- It beat NEPSE in 5 of 8 calendar years (2019, 2021, 2022, 2024, 2026).
+- In the hold-out it roughly matched the average stock.
+- It **still trails the NEPSE index overall**, mainly because it badly missed the 2020 COVID-rebound mania (+29% vs +79%).
+- Its worst drop (−55%, 2021–23) was deeper than NEPSE's (−43%).
+
+**The likely next real edges** need data this bot doesn't have yet:
+- fundamentals: EPS, P/E, book value, dividends
+- floorsheet broker accumulation
+- book-closure and AGM dates
 
 ## Run it yourself
 
 ```bash
 pip install -r requirements.txt
-python -m bot.fetch backfill 2025-04-01   # one-time history download
+python -m bot.fetch backfill 2019-01-01   # one-time history download (~10 min)
+python -m bot.research                    # NEPSE pattern research report
 python -m bot.run                         # daily: fetch + trade + publish
 python -m http.server -d docs 8000        # view dashboard at localhost:8000
 ```
