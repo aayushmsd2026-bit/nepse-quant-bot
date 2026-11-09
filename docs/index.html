@@ -7,23 +7,31 @@
 <meta name="description" content="A transparent, open-source paper-trading bot for the Nepal Stock Exchange. Starts with Rs 5,00,000 of virtual money and trades daily on real NEPSE data.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#051230">
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏔️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='4' fill='%23051230'/%3E%3Cpath d='M4 31 15 13l5 7 4-5 12 16z' fill='%23e2b540'/%3E%3Cpath d='M15 13l3 5-3-1-2 2z' fill='%23f5ecc2'/%3E%3C/svg%3E">
 </head>
 <body>
 <header class="top">
   <div class="wrap top-in">
     <div class="brand">
-      <span class="logo">▲</span>
-      <div><b>NEPSE Quant Lab</b><small>Sagarmatha Signal Engine</small></div>
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+        <rect width="40" height="40" rx="4" fill="#051230" stroke="#e2b54055"/>
+        <circle cx="29" cy="11" r="3.2" fill="#ebd3a2"/>
+        <path d="M3 32 14.5 13.5l5.2 7.6 4.3-5.4L37 32z" fill="#e2b540"/>
+        <path d="M14.5 13.5l3.2 4.8-3.2-1.2-2.3 2.1z M24 15.7l2.4 3.4-2.4-.9-1.6 1.4z" fill="#f5ecc2"/>
+        <path d="M3 32h34" stroke="#bc892b" stroke-width="1.2"/>
+      </svg>
+      <div><b>NEPSE Quant Lab</b><small>SAGARMATHA SIGNAL ENGINE</small></div>
     </div>
     <div class="mode" role="tablist" aria-label="Portfolio view">
       <button class="on" data-mode="live" role="tab">● Live<span class="long"> paper trading</span></button>
       <button data-mode="backtest" role="tab">⟲ <span class="long">Historical </span>Simulation</button>
     </div>
-    <button class="theme" id="theme" aria-label="Toggle theme">◐</button>
+    <button class="theme" id="theme" aria-label="Switch between night and paper theme" title="Night / paper">☾</button>
   </div>
+  <div class="flags" aria-hidden="true"></div>
 </header>
 
 <nav class="subnav"><div class="wrap">
@@ -63,12 +71,12 @@
         <div class="card-h"><h3>Growth of Rs 5,00,000</h3>
           <div class="seg" id="rangeSeg"><button data-r="31">1M</button><button data-r="92">3M</button><button data-r="366">1Y</button><button class="on" data-r="0">All</button></div></div>
         <div class="chart"><canvas id="eqChart"></canvas></div>
-        <p class="hint">Green = the bot. Grey dashed = Rs 5,00,000 following the NEPSE index. Orange dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
+        <p class="hint">Gold line = the bot. Blue dashed = Rs 5,00,000 following the NEPSE index. Purple dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
       </div>
     </div>
 
     <div class="card mt" id="record">
-      <div class="card-h"><h3>📚 Track record</h3><span class="muted" id="recordNote"></span></div>
+      <div class="card-h"><h3>Track record</h3><span class="muted" id="recordNote"></span></div>
       <div class="split" id="split"></div>
       <div class="tablewrap"><table class="years" id="yearTable"></table></div>
       <div class="models" id="models"></div>
@@ -77,6 +85,7 @@
 
   <!-- ===================== HOLDINGS -->
   <section id="holdings">
+    <div class="plate" data-plate="holdings"></div>
     <h2>What the bot owns right now</h2>
     <p class="lead">Each card is one stock. <b>🔒 Settling</b> means the shares are still being delivered (NEPSE's T+2 rule), so they can't be sold yet.</p>
     <div class="holds" id="holds"></div>
@@ -87,17 +96,18 @@
 
   <!-- ===================== BRAIN -->
   <section id="brain">
-    <h2>Inside the bot's brain 🧠</h2>
-    <p class="lead">Like Renaissance Technologies, the bot doesn't rely on one big idea. It combines <b>8 small statistical signals</b> and <b>learns from recent data how much to trust each one</b>. Each signal starts from what <b>8 years of NEPSE research</b> found (the ▲ marker), then adjusts to how well it worked over the last year.</p>
+    <div class="plate" data-plate="brain"></div>
+    <h2>Inside the bot's brain</h2>
+    <p class="lead">Like Renaissance Technologies, the bot doesn't rely on one big idea. It combines <b>8 small statistical signals</b> and <b>learns from recent data how much to trust each one</b>. Each signal starts from what <b>8 years of NEPSE research</b> found (the ▼ marker), then adjusts to how well it worked over the last year.</p>
     <div class="grid2">
       <div class="card">
         <h3>Signal trust levels <i class="tip" data-tip="Weight of each signal in the final score. Learned every day from how well each signal predicted the next 20 days of returns over the last 120 trading days.">?</i></h3>
         <div id="weights"></div>
       </div>
       <div class="card">
-        <h3>Trust over time</h3>
-        <div class="chart"><canvas id="wChart"></canvas></div>
-        <p class="hint">Watch the bot change its mind as markets change.</p>
+        <div class="card-h"><h3>Trust over time</h3><span class="muted" id="multNote"></span></div>
+        <div class="multiples" id="mults"></div>
+        <p class="hint">One small chart per signal, so each is easy to read. Above the middle line, the bot favours stocks scoring high on that signal; below it, high scores count against a stock. The dashed line marks the research starting point.</p>
       </div>
     </div>
     <div class="card mt">
@@ -110,7 +120,8 @@
 
   <!-- ===================== RESEARCH -->
   <section id="nepal">
-    <h2>What we learned about NEPSE 🇳🇵</h2>
+    <div class="plate" data-plate="nepal"></div>
+    <h2>What we learned about NEPSE</h2>
     <p class="lead">The bot's rules come from studying <b><span id="rsYears">—</span> of real NEPSE data</b>. To avoid fooling ourselves, the model was designed using data up to <b><span id="rsCut">—</span></b> only. Everything after that is a <b>hold-out test</b>: data the design never saw. A pattern counts as real only if it kept working in the hold-out.</p>
     <div class="findings" id="findings"></div>
     <div class="grid2 mt">
@@ -152,7 +163,8 @@
 
   <!-- ===================== LOG -->
   <section id="log">
-    <h2>Activity log 📜</h2>
+    <div class="plate" data-plate="log"></div>
+    <h2>Activity log</h2>
     <p class="lead">Every thought, decision and trade, as it happened. Nothing is hidden.</p>
     <div class="card term">
       <div class="term-h">
@@ -166,6 +178,7 @@
 
   <!-- ===================== TRADES -->
   <section id="trades">
+    <div class="plate" data-plate="trades"></div>
     <h2>Trade history</h2>
     <div class="card">
       <div class="card-h"><div class="seg" id="tradeSeg"><button class="on" data-f="all">All</button><button data-f="BUY">Buys</button><button data-f="SELL">Sells</button><button data-f="REJECTED">Rejected</button></div>
@@ -176,7 +189,8 @@
 
   <!-- ===================== COSTS -->
   <section id="costs">
-    <h2>Where the money goes 💸</h2>
+    <div class="plate" data-plate="costs"></div>
+    <h2>Where the money goes</h2>
     <p class="lead">Trading in Nepal isn't free. Every rupee of fees and tax is counted so the results are honest.</p>
     <div class="grid2">
       <div class="card"><div class="chart sm"><canvas id="feeChart"></canvas></div></div>
@@ -186,6 +200,7 @@
 
   <!-- ===================== HOW -->
   <section id="how">
+    <div class="plate" data-plate="how"></div>
     <h2>How it works, step by step</h2>
     <ol class="steps">
       <li><b>3:00 PM: market closes.</b> A GitHub Actions robot wakes up and downloads every stock's open, high, low, close, volume and average price (VWAP), plus the NEPSE index. Holidays are skipped automatically.</li>
@@ -212,6 +227,7 @@
 </main>
 <footer class="wrap foot">
   <span id="updated">—</span> · <span id="runlog"></span>
+  <span class="credit">Colours: Sanzo Wada, <i>A Dictionary of Color Combinations</i> (1933), digitised by mattdesl. Prayer-flag strip in Wada's Blue, Ivory Buff, Carmine Red, Diamine Green and Yellow Ocher.</span>
 </footer>
 
 <script src="chart.umd.min.js"></script>

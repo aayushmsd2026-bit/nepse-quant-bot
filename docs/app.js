@@ -15,7 +15,23 @@ const KIND = {
 };
 const FILTERS = { all: "All", trades: "Trades", decisions: "Decisions", brain: "Brain", alerts: "Alerts" };
 const FGROUP = { trades: ["buy", "sell"], decisions: ["plan", "hold", "lock", "exec"], brain: ["think", "learn", "risk"], alerts: ["warn", "lock"] };
-const SIGCOL = ["#2fd497", "#6e93ff", "#ffb224", "#ff6b6f", "#a08bff", "#3cc8e8", "#ff8fcf", "#c2d94c"];
+/* Section plates: real numbered combinations from Sanzo Wada's "A Dictionary of Color Combinations" (1933). */
+const PLATES = {
+  holdings: [126, [["Ivory Buff", "#ebd3a2"], ["Yellow Ocher", "#e2b540"], ["Deep Lyons Blue", "#1c4286"]]],
+  brain: [139, [["Salvia Blue", "#97acc8"], ["Deep Indigo", "#051230"], ["Neutral Gray", "#b6bfc1"]]],
+  nepal: [325, [["Eugenia Red", "#da525d"], ["Naples Yellow", "#fbe6a0"], ["Yellow Ocher", "#e2b540"], ["Deep Slate Green", "#112f2c"]]],
+  log: [145, [["Brown", "#7c4226"], ["Citron Yellow", "#b2b73e"], ["Dull Violet Black", "#1e0e3f"]]],
+  trades: [232, [["Carmine", "#cc1236"], ["Pinkish Cinnamon", "#eeb480"], ["Deep Indigo", "#051230"]]],
+  costs: [211, [["Apricot Orange", "#f68c50"], ["Olive Yellow", "#a6a159"], ["Deep Indigo", "#051230"]]],
+  how: [155, [["Jasper Red", "#eb5324"], ["Benzol Green", "#00978d"], ["Deep Indigo", "#051230"]]],
+};
+function plates() {
+  $$(".plate[data-plate]").forEach(el => {
+    const [n, cs] = PLATES[el.dataset.plate] || [];
+    if (!n) return;
+    el.innerHTML = `<span>Plate № ${n}</span><span class="sw">${cs.map(([nm, h]) => `<i style="background:${h}" title="${nm} ${h}"></i>`).join("")}</span><span class="nm">${cs.map(c => c[0]).join(" · ")}</span>`;
+  });
+}
 
 let RES = null;
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
@@ -115,14 +131,14 @@ function equityChart(S) {
   charts.eq?.destroy();
   const ctx = $("#eqChart").getContext("2d");
   const g = ctx.createLinearGradient(0, 0, 0, 300);
-  g.addColorStop(0, css("--green") + "55"); g.addColorStop(1, css("--green") + "00");
+  g.addColorStop(0, css("--c1") + "4d"); g.addColorStop(1, css("--c1") + "00");
   charts.eq = new Chart(ctx, {
     type: "line",
     data: {
       labels, datasets: [
-        { label: "Bot portfolio", data: bot, borderColor: css("--green"), backgroundColor: g, fill: true, borderWidth: 2.4, pointRadius: eq.length < 3 ? 5 : 0, tension: .25 },
-        { label: "NEPSE index (same Rs start)", data: nep, borderColor: css("--muted"), borderDash: [5, 4], borderWidth: 1.6, pointRadius: eq.length < 3 ? 4 : 0, tension: .25 },
-        { label: "Average liquid stock (no costs)", data: ew, borderColor: css("--amber"), borderDash: [2, 3], borderWidth: 1.4, pointRadius: 0, tension: .25 },
+        { label: "Bot portfolio", data: bot, borderColor: css("--c1"), backgroundColor: g, fill: true, borderWidth: 2.4, pointRadius: eq.length < 3 ? 5 : 0, tension: .25 },
+        { label: "NEPSE index (same Rs start)", data: nep, borderColor: css("--c2"), borderDash: [5, 4], borderWidth: 1.6, pointRadius: eq.length < 3 ? 4 : 0, tension: .25 },
+        { label: "Average liquid stock (no costs)", data: ew, borderColor: css("--c3"), borderDash: [2, 3], borderWidth: 1.4, pointRadius: 0, tension: .25 },
       ],
     },
     options: baseChartOpts({ scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 7, maxRotation: 0 }, grid: { display: false } }, y: { ticks: { color: css("--muted"), callback: v => "Rs " + (v / 100000).toFixed(2) + "L" }, grid: { color: css("--line") } } },
@@ -180,23 +196,40 @@ function brain(S) {
     return `<div class="wrow"><div class="nm">${sig[k].name}<small>${sig[k].desc}</small></div>
       <div class="wbar" title="Now ${(w * 100).toFixed(0)}% · research starting point ${((pri[k] || 0) * 100).toFixed(0)}%"><span style="background:${pos ? css("--green") : css("--red")};${pos ? `left:50%;width:${wd}%` : `right:50%;width:${wd}%`}"></span>${k in pri ? `<i class="prior" style="left:${50 + (pri[k] / mx) * 50}%"></i>` : ""}</div>
       <div class="pc ${pos ? "up" : "down"}">${(w * 100).toFixed(0)}%</div></div>`;
-  }).join("") + `<p class="hint">Green = the bot buys stocks scoring high on this. Red = it learned this signal works <b>in reverse</b> on NEPSE, so high scores count against a stock. ▲ = where 8 years of research put it; the bar = today's learned trust.</p>`;
+  }).join("") + `<p class="hint">Green = the bot buys stocks scoring high on this. Red = it learned this signal works <b>in reverse</b> on NEPSE, so high scores count against a stock. ▼ = where 8 years of research put it; the bar = today's learned trust.</p>`;
   $("#uniN").textContent = b.universe;
   const keys = Object.keys(sig);
-  const color = v => { const a = Math.min(1, Math.abs(v) / 2.5); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .55 ? "#fff" : css("--ink")}`; };
+  const color = v => { const a = Math.min(1, Math.abs(v) / 2.5); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .5 ? "#f5ecc2" : css("--ink")}`; };
   $("#heat").innerHTML = `<thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Price</th>${keys.map(k => `<th title="${sig[k].desc}">${sig[k].name}</th>`).join("")}<th>Score</th></tr></thead><tbody>` +
     b.top.map((t, i) => `<tr><td>${i + 1}</td><td><b>${t.sym}</b>${t.veto ? `<span class="veto" title="Never-buy rule: ${esc(t.veto)}">🚫</span>` : ""}</td><td class="muted">${esc(t.sector)}</td><td>${num(t.close, 1)}</td>${keys.map(k => `<td class="z" style="${color(t.z[k])}">${t.z[k].toFixed(1)}</td>`).join("")}<td class="s up">${t.alpha.toFixed(2)}</td></tr>`).join("") + "</tbody>";
 }
 
 function weightChart(S) {
   let wh = S.weight_history || [], note = "";
-  if (wh.length < 5) { wh = DATA.backtest.weight_history || []; note = " (from historical simulation)"; }
-  const sig = META.signals, keys = Object.keys(sig);
-  charts.w?.destroy();
-  charts.w = new Chart($("#wChart"), {
-    type: "line",
-    data: { labels: wh.map(w => w.date), datasets: keys.map((k, i) => ({ label: sig[k].name, data: wh.map(w => w[k] * 100), borderColor: SIGCOL[i], borderWidth: 1.8, pointRadius: 0, tension: .3 })) },
-    options: baseChartOpts({ plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 8, usePointStyle: true, font: { size: 11 } } }, title: { display: !!note, text: "Trust levels over time" + note, color: css("--muted") }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(0)}%` } } } }),
+  if (wh.length < 5) { wh = DATA.backtest.weight_history || []; note = "From the historical simulation"; }
+  $("#multNote").textContent = note;
+  const sig = META.signals, keys = Object.keys(sig), pri = (S.brain || DATA.backtest.brain || {}).priors || {};
+  Object.values(charts.mult || {}).forEach(c => c.destroy());
+  charts.mult = {};
+  const lim = Math.max(10, ...wh.flatMap(w => keys.map(k => Math.abs(w[k] * 100)))) * 1.05;
+  $("#mults").innerHTML = keys.map(k => {
+    const last = (wh.at(-1)?.[k] ?? 0) * 100;
+    return `<div class="mult"><div class="mh"><b title="${esc(sig[k].desc)}">${sig[k].name}</b><span class="${cls(last)}">${last >= 0 ? "+" : ""}${last.toFixed(0)}%</span></div><div class="mc"><canvas id="m_${k}" aria-label="${sig[k].name} trust over time"></canvas></div></div>`;
+  }).join("");
+  const tip = { backgroundColor: css("--ink"), titleColor: css("--bg"), bodyColor: css("--bg"), padding: 8, displayColors: false };
+  keys.forEach(k => {
+    charts.mult[k] = new Chart($("#m_" + k), {
+      type: "line",
+      data: { labels: wh.map(w => w.date), datasets: [
+        { data: wh.map(w => w[k] * 100), borderColor: css("--ink2"), borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 4, tension: .3,
+          fill: { target: { value: 0 }, above: css("--green") + "40", below: css("--red") + "40" } },
+        { data: wh.map(() => (pri[k] ?? 0) * 100), borderColor: css("--amber"), borderDash: [3, 3], borderWidth: 1, pointRadius: 0, pointHoverRadius: 0 },
+        { data: wh.map(() => 0), borderColor: css("--muted") + "66", borderWidth: 1, pointRadius: 0, pointHoverRadius: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false }, tooltip: { ...tip, filter: c => c.datasetIndex < 2,
+          callbacks: { label: c => c.datasetIndex ? `Research start: ${c.parsed.y.toFixed(0)}%` : `Trust: ${c.parsed.y.toFixed(0)}%` } } },
+        scales: { x: { display: false }, y: { display: false, min: -lim, max: lim } } },
+    });
   });
 }
 
@@ -222,7 +255,7 @@ function terminal(S, keepDay) {
   if (!first) { T.innerHTML = out.join("") || `<div class="muted">Nothing for this filter.</div>`; return; }
   let n = 0; // animate today's log line by line
   typing = setInterval(() => {
-    if (n >= out.length) { clearInterval(typing); T.insertAdjacentHTML("beforeend", `<div class="ln"><span class="tag">bot@nepse</span><span>waiting for the next market close <span class="cursor"></span></span></div>`); return; }
+    if (n >= out.length) { clearInterval(typing); T.insertAdjacentHTML("beforeend", `<div class="ln"><span class="tag">IDLE</span><span>waiting for the next market close <span class="cursor"></span></span></div>`); return; }
     T.insertAdjacentHTML("beforeend", out[n++]); T.scrollTop = T.scrollHeight;
   }, 110);
 }
@@ -238,21 +271,20 @@ function trades(S) {
 }
 
 function fees(S) {
-  const f = S.fees, items = [
-    ["commission", "Broker commission", "0.24–0.36% of every buy and sell, set by SEBON", css("--blue")],
-    ["slippage", "Slippage", "Paying slightly worse than the day's average price (simulated 0.25%)", css("--violet")],
-    ["cgt", "Capital gains tax", "7.5% of profit on shares held under a year (5% if longer)", css("--red")],
-    ["dp", "DP charge", "Rs 25 per stock sold, paid to the depository participant", css("--amber")],
-    ["sebon", "SEBON fee", "0.015% regulator fee on every transaction", css("--green")],
+  const f = { ...S.fees, small: (S.fees.sebon || 0) + (S.fees.dp || 0) }, items = [
+    ["commission", "Broker commission", "0.24–0.36% of every buy and sell, set by SEBON", css("--c2")],
+    ["cgt", "Capital gains tax", "7.5% of profit on shares held under a year (5% if longer)", css("--c1")],
+    ["slippage", "Slippage", "Paying slightly worse than the day's average price (simulated 0.25%)", css("--c3")],
+    ["small", "Small fees", "SEBON 0.015% per trade + DP charge Rs 25 per stock sold", css("--c4")],
   ];
   const tot = items.reduce((a, [k]) => a + (f[k] || 0), 0);
   charts.fee?.destroy();
   charts.fee = new Chart($("#feeChart"), {
     type: "doughnut",
-    data: { labels: items.map(i => i[1]), datasets: [{ data: items.map(([k]) => f[k] || 0), backgroundColor: items.map(i => i[3]), borderColor: css("--card"), borderWidth: 3 }] },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "68%", plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 10, usePointStyle: true } }, tooltip: { callbacks: { label: c => `${c.label}: ${rs(c.parsed)}` } } } },
+    data: { labels: items.map(i => i[1]), datasets: [{ data: items.map(([k]) => f[k] || 0), backgroundColor: items.map(i => i[3]), borderColor: css("--card"), borderWidth: 2, hoverOffset: 6 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "66%", plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 10, usePointStyle: true } }, tooltip: { backgroundColor: css("--ink"), titleColor: css("--bg"), bodyColor: css("--bg"), callbacks: { label: c => `${c.label}: ${rs(c.parsed)}` } } } },
   });
-  $("#feeList").innerHTML = items.map(([k, n, d, c]) => `<div class="fee"><div><span style="color:${c}">●</span> ${n}<small>${d}</small></div><b>${rs(f[k] || 0)}</b></div>`).join("") +
+  $("#feeList").innerHTML = items.map(([k, n, d, c]) => `<div class="fee"><div><span class="chip" style="background:${c}"></span>${n}<small>${d}</small></div><b>${rs(f[k] || 0)}</b></div>`).join("") +
     `<div class="fee"><div><b>Total cost of trading</b><small>${tot ? ((tot / S.start_capital) * 100).toFixed(2) + "% of starting capital" : "Nothing spent yet"}</small></div><b>${rs(tot)}</b></div>`;
 }
 
@@ -295,19 +327,20 @@ function research() {
     ["🪔", "Festivals & months: mostly noise", `NEPSE rose ${mk.holidays.pre5_avg}% on average in the week before long holidays (vs ${mk.holidays.any5_avg}% for any week). Monthly patterns swing wildly with only ${y1 - y0} years of data.`, "no", "Not used"],
     ["🌊", "Weekly trends persist slightly", `NEPSE's weekly returns are positively correlated (${mk.autocorr.weekly}): good weeks tend to follow good weeks, a sign of a retail-driven market. Too weak to trade alone after costs.`, "info", "Monitored"],
   ];
-  $("#findings").innerHTML = F.map(([i, t, d, c, tag]) => `<div class="finding"><span class="fi">${i}</span><b>${t}</b><p>${d}</p><span class="tag2 ${c}">${tag}</span></div>`).join("");
+  const fc = { use: "--green", no: "--red", info: "--blue" };
+  $("#findings").innerHTML = F.map(([i, t, d, c, tag]) => `<div class="finding" style="--fc:var(${fc[c]})"><span class="fi">${i}</span><b>${t}</b><p>${d}</p><span class="tag2 ${c}">${tag}</span></div>`).join("");
 
   const keys = Object.keys(st).sort((a, b) => (st[a].ic_design[0] + st[a].ic_holdout[0]) - (st[b].ic_design[0] + st[b].ic_holdout[0]));
   charts.ic?.destroy();
   charts.ic = new Chart($("#icChart"), {
     type: "bar",
     data: { labels: keys.map(k => FN[k] || k), datasets: [
-      { label: `Design (to ${R.design_end})`, data: keys.map(k => st[k].ic_design?.[0]), backgroundColor: css("--blue") },
-      { label: "Hold-out (unseen)", data: keys.map(k => st[k].ic_holdout?.[0]), backgroundColor: css("--amber") }] },
+      { label: `Design (to ${R.design_end})`, data: keys.map(k => st[k].ic_design?.[0]), backgroundColor: css("--c2"), borderRadius: 1 },
+      { label: "Hold-out (unseen)", data: keys.map(k => st[k].ic_holdout?.[0]), backgroundColor: css("--c1"), borderRadius: 1 }] },
     options: baseChartOpts({ indexAxis: "y", scales: { x: { ticks: { color: css("--muted") }, grid: { color: css("--line") } }, y: { ticks: { color: css("--ink2"), font: { size: 11 } }, grid: { display: false } } } }),
   });
   const years = [...new Set(keys.flatMap(k => Object.keys(st[k].ic_by_year)))].sort();
-  const hc = v => { const a = Math.min(1, Math.abs(v) / 0.2); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .55 ? "#fff" : css("--ink")}`; };
+  const hc = v => { const a = Math.min(1, Math.abs(v) / 0.2); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .5 ? "#f5ecc2" : css("--ink")}`; };
   $("#icYears").innerHTML = `<thead><tr><th>Signal</th>${years.map(y => `<th>${y}</th>`).join("")}</tr></thead><tbody>` +
     [...keys].reverse().map(k => `<tr><td><b>${FN[k] || k}</b></td>${years.map(y => { const v = st[k].ic_by_year[y]; return v == null ? "<td></td>" : `<td class="z" style="${hc(v)}">${(v * 100).toFixed(0)}</td>`; }).join("")}</tr>`).join("") + "</tbody>";
 
@@ -327,8 +360,8 @@ function research() {
   charts.br = new Chart($("#breadthChart"), {
     type: "bar",
     data: { labels: q, datasets: [
-      { label: "Design", data: mk.breadth_q.design, backgroundColor: css("--blue") },
-      { label: "Hold-out", data: mk.breadth_q.holdout, backgroundColor: css("--amber") }] },
+      { label: "Design", data: mk.breadth_q.design, backgroundColor: css("--c2"), borderRadius: 1 },
+      { label: "Hold-out", data: mk.breadth_q.holdout, backgroundColor: css("--c1"), borderRadius: 1 }] },
     options: baseChartOpts({ plugins: { legend: { labels: { color: css("--ink2"), boxWidth: 10 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}% next 20 days` } } } }),
   });
   const mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -353,12 +386,21 @@ $("#rangeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) re
 $("#tradeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; tradeFilter = b.dataset.f; $$("#tradeSeg button").forEach(x => x.classList.toggle("on", x === b)); trades(DATA[mode]); };
 $("#filters").onclick = e => { const b = e.target.closest("button"); if (!b) return; logFilter = b.dataset.f; terminal(DATA[mode], true); };
 $("#daySel").onchange = () => terminal(DATA[mode], true);
+function setThemeIcon() {
+  const light = document.documentElement.dataset.theme === "light";
+  $("#theme").textContent = light ? "☾" : "☀";
+  $("#theme").title = light ? "Switch to night" : "Switch to paper";
+}
 $("#theme").onclick = () => {
-  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  r.dataset.theme = dark ? "light" : "dark";
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === "light" ? "dark" : "light";
   try { localStorage.setItem("theme", r.dataset.theme); } catch (e) { }
+  setThemeIcon();
   render();
   if (RES) research();
 };
 try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
+setThemeIcon();
+plates();
+if (window.Chart) { Chart.defaults.font.family = '"IBM Plex Sans", system-ui, sans-serif'; Chart.defaults.font.size = 11.5; }
 load().catch(e => { $("#modeBanner").className = "banner"; $("#modeBanner").textContent = "Could not load bot data: " + e; });
