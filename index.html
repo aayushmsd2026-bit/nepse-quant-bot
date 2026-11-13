@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEPSE Quant Lab</title>
+<meta name="description" content="A transparent, open-source paper-trading bot for the Nepal Stock Exchange. Starts with Rs 5,00,000 of virtual money and trades daily on real NEPSE data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#051230">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='4' fill='%23051230'/%3E%3Cpath d='M4 31 15 13l5 7 4-5 12 16z' fill='%23e2b540'/%3E%3Cpath d='M15 13l3 5-3-1-2 2z' fill='%23f5ecc2'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+        <rect width="40" height="40" rx="4" fill="#051230" stroke="#e2b54055"/>
+        <circle cx="29" cy="11" r="3.2" fill="#ebd3a2"/>
+        <path d="M3 32 14.5 13.5l5.2 7.6 4.3-5.4L37 32z" fill="#e2b540"/>
+        <path d="M14.5 13.5l3.2 4.8-3.2-1.2-2.3 2.1z M24 15.7l2.4 3.4-2.4-.9-1.6 1.4z" fill="#f5ecc2"/>
+        <path d="M3 32h34" stroke="#bc892b" stroke-width="1.2"/>
+      </svg>
+      <div><b>NEPSE Quant Lab</b><small>SAGARMATHA SIGNAL ENGINE</small></div>
+    </div>
+    <div class="mode" role="tablist" aria-label="Portfolio view">
+      <button class="on" data-mode="live" role="tab">● Live<span class="long"> paper trading</span></button>
+      <button data-mode="backtest" role="tab">⟲ <span class="long">Historical </span>Simulation</button>
+    </div>
+    <button class="theme" id="theme" aria-label="Switch between night and paper theme" title="Night / paper">☾</button>
+  </div>
+  <div class="flags" aria-hidden="true"></div>
+</header>
+
+<nav class="subnav"><div class="wrap">
+  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a>
+  <a href="#log">Activity log</a><a href="#trades">Trades</a><a href="#costs">Costs</a><a href="#how">How it works</a>
+</div></nav>
+
+<main class="wrap">
+  <div class="banner" id="modeBanner"></div>
+
+  <!-- ===================== OVERVIEW -->
+  <section id="overview">
+    <div class="kpis">
+      <div class="kpi big">
+        <label>Portfolio value <i class="tip" data-tip="Cash + current market value of all shares the bot owns.">?</i></label>
+        <div class="val" id="kEquity">—</div>
+        <div class="sub" id="kEquitySub"></div>
+      </div>
+      <div class="kpi"><label>Total return <i class="tip" data-tip="Profit or loss since the start, after ALL fees and taxes.">?</i></label><div class="val" id="kRet">—</div><div class="sub" id="kRetSub"></div></div>
+      <div class="kpi"><label>vs NEPSE index <i class="tip" data-tip="How much better (or worse) the bot did than simply holding the whole market (the NEPSE index).">?</i></label><div class="val" id="kAlpha">—</div><div class="sub" id="kAlphaSub"></div></div>
+      <div class="kpi"><label>Cash / In stocks <i class="tip" data-tip="The bot keeps some cash aside, more when the market mood is bad.">?</i></label><div class="val sm" id="kCash">—</div><div class="bar"><span id="kCashBar"></span></div></div>
+      <div class="kpi"><label>Worst drop <i class="tip" data-tip="Max drawdown: the biggest fall from a high point. Shows how painful the ride was.">?</i></label><div class="val sm" id="kDD">—</div><div class="sub" id="kDDSub"></div></div>
+      <div class="kpi"><label>Win rate <i class="tip" data-tip="Share of completed trades (bought and sold) that made money after costs.">?</i></label><div class="val sm" id="kWin">—</div><div class="sub" id="kWinSub"></div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card story">
+        <h3><span class="dot pulse"></span> What the bot did on <span id="storyDate">—</span></h3>
+        <div id="story"></div>
+        <div class="mood">
+          <div><small>Market mood</small><b id="mood">—</b></div>
+          <div class="gauge"><span id="moodNeedle"></span></div>
+          <div><small>Max in stocks</small><b id="gross">—</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Growth of Rs 5,00,000</h3>
+          <div class="seg" id="rangeSeg"><button data-r="31">1M</button><button data-r="92">3M</button><button data-r="366">1Y</button><button class="on" data-r="0">All</button></div></div>
+        <div class="chart"><canvas id="eqChart"></canvas></div>
+        <p class="hint">Gold line = the bot. Blue dashed = Rs 5,00,000 following the NEPSE index. Purple dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
+      </div>
+    </div>
+
+    <div class="card mt" id="record">
+      <div class="card-h"><h3>Track record</h3><span class="muted" id="recordNote"></span></div>
+      <div class="split" id="split"></div>
+      <div class="tablewrap"><table class="years" id="yearTable"></table></div>
+      <div class="models" id="models"></div>
+    </div>
+  </section>
+
+  <!-- ===================== HOLDINGS -->
+  <section id="holdings">
+    <div class="plate" data-plate="holdings"></div>
+    <h2>What the bot owns right now</h2>
+    <p class="lead">Each card is one stock. <b>🔒 Settling</b> means the shares are still being delivered (NEPSE's T+2 rule), so they can't be sold yet.</p>
+    <div class="holds" id="holds"></div>
+    <h3 class="mt">📮 Orders queued for the next trading session</h3>
+    <p class="lead small">The bot decides after the market closes at 3 PM and places orders at the next session's opening. Fills are simulated at the day's average price (VWAP) plus slippage.</p>
+    <div class="orders" id="orders"></div>
+  </section>
+
+  <!-- ===================== BRAIN -->
+  <section id="brain">
+    <div class="plate" data-plate="brain"></div>
+    <h2>Inside the bot's brain</h2>
+    <p class="lead">Like Renaissance Technologies, the bot doesn't rely on one big idea. It combines <b>8 small statistical signals</b> and <b>learns from recent data how much to trust each one</b>. Each signal starts from what <b>8 years of NEPSE research</b> found (the ▼ marker), then adjusts to how well it worked over the last year.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>Signal trust levels <i class="tip" data-tip="Weight of each signal in the final score. Learned every day from how well each signal predicted the next 20 days of returns over the last 120 trading days.">?</i></h3>
+        <div id="weights"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Trust over time</h3><span class="muted" id="multNote"></span></div>
+        <div class="multiples" id="mults"></div>
+        <p class="hint">One small chart per signal, so each is easy to read. Above the middle line, the bot favours stocks scoring high on that signal; below it, high scores count against a stock. The dashed line marks the research starting point.</p>
+      </div>
+    </div>
+    <div class="card mt">
+      <div class="card-h"><h3>Today's top-ranked stocks (<span id="uniN">—</span> scanned)</h3>
+      <span class="legend"><i class="neg"></i>weak <i class="mid"></i>neutral <i class="pos"></i>strong</span></div>
+      <p class="hint">Each colored cell is how strongly a stock scores on one signal (in standard deviations vs other stocks). The final <b>Score</b> combines them using the trust levels above.</p>
+      <div class="tablewrap"><table class="heat" id="heat"></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== RESEARCH -->
+  <section id="nepal">
+    <div class="plate" data-plate="nepal"></div>
+    <h2>What we learned about NEPSE</h2>
+    <p class="lead">The bot's rules come from studying <b><span id="rsYears">—</span> of real NEPSE data</b>. To avoid fooling ourselves, the model was designed using data up to <b><span id="rsCut">—</span></b> only. Everything after that is a <b>hold-out test</b>: data the design never saw. A pattern counts as real only if it kept working in the hold-out.</p>
+    <div class="findings" id="findings"></div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>Which stock signals actually work? <i class="tip" data-tip="Average correlation (IC) between each signal and the next 20 days' returns. Positive = high score → higher future return. Bars show the design period vs the unseen hold-out.">?</i></h3>
+        <div class="chart tall"><canvas id="icChart"></canvas></div>
+        <p class="hint">A useful signal has bars of the same color and direction in both periods.</p>
+      </div>
+      <div class="card">
+        <h3>Signal strength, year by year</h3>
+        <div class="tablewrap"><table class="heat" id="icYears"></table></div>
+        <p class="hint">Green = worked that year, red = worked in reverse. Consistent color across years = a real, persistent pattern.</p>
+      </div>
+    </div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>Timing the market: does following the trend help?</h3>
+        <div class="chart"><canvas id="trendChart"></canvas></div>
+        <p class="hint">Average NEPSE return over the next 20 trading days, when the index is above vs below its moving average.</p>
+      </div>
+      <div class="card">
+        <h3>Market breadth → future returns</h3>
+        <div class="chart"><canvas id="breadthChart"></canvas></div>
+        <p class="hint">Breadth = share of stocks trading above their own 50-day average. Grouped into 5 buckets, from weakest to strongest breadth.</p>
+      </div>
+    </div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>NEPSE by calendar month</h3>
+        <div class="chart sm"><canvas id="monthChart"></canvas></div>
+        <p class="hint">Average NEPSE index change per month. Few years of data means this is mostly noise, so the bot does <b>not</b> trade on it.</p>
+      </div>
+      <div class="card">
+        <h3>NEPSE year by year</h3>
+        <div class="chart sm"><canvas id="yearChart"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LOG -->
+  <section id="log">
+    <div class="plate" data-plate="log"></div>
+    <h2>Activity log</h2>
+    <p class="lead">Every thought, decision and trade, as it happened. Nothing is hidden.</p>
+    <div class="card term">
+      <div class="term-h">
+        <span class="lights"><i></i><i></i><i></i></span>
+        <select id="daySel" aria-label="Choose day"></select>
+        <div class="filters" id="filters"></div>
+      </div>
+      <div class="term-body" id="term"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TRADES -->
+  <section id="trades">
+    <div class="plate" data-plate="trades"></div>
+    <h2>Trade history</h2>
+    <div class="card">
+      <div class="card-h"><div class="seg" id="tradeSeg"><button class="on" data-f="all">All</button><button data-f="BUY">Buys</button><button data-f="SELL">Sells</button><button data-f="REJECTED">Rejected</button></div>
+      <span class="muted" id="tradeCount"></span></div>
+      <div class="tablewrap"><table class="trades" id="tradeTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== COSTS -->
+  <section id="costs">
+    <div class="plate" data-plate="costs"></div>
+    <h2>Where the money goes</h2>
+    <p class="lead">Trading in Nepal isn't free. Every rupee of fees and tax is counted so the results are honest.</p>
+    <div class="grid2">
+      <div class="card"><div class="chart sm"><canvas id="feeChart"></canvas></div></div>
+      <div class="card" id="feeList"></div>
+    </div>
+  </section>
+
+  <!-- ===================== HOW -->
+  <section id="how">
+    <div class="plate" data-plate="how"></div>
+    <h2>How it works, step by step</h2>
+    <ol class="steps">
+      <li><b>3:00 PM: market closes.</b> A GitHub Actions robot wakes up and downloads every stock's open, high, low, close, volume and average price (VWAP), plus the NEPSE index. Holidays are skipped automatically.</li>
+      <li><b>Filter.</b> It drops mutual funds, bonds, debentures, promoter shares and the least-traded 40% of stocks, so every trade is realistic for a Rs 5 lakh account.</li>
+      <li><b>8 signals.</b> Chosen from 8 years of NEPSE research: closing pressure, low volatility, no lottery spikes, short-term bounce, near 52-week high, circuit chasing, momentum and size.</li>
+      <li><b>Learn.</b> Each signal's trust = 50% what 8 years of research says + 50% how well it predicted the next 20 days over the last year (only past data, never the future).</li>
+      <li><b>Never-buy rules.</b> No stock that hit the upper circuit today, hit the lower circuit in the last 5 days, or has the heaviest late-day closing pressure. These traps were the most reliable patterns in the research.</li>
+      <li><b>Review every 40 trading days.</b> Holds about 10–12 stocks (max 12% each, 35% per sector). It buys from the top 15% and keeps holdings while they stay in the top 35%. Trading less keeps NEPSE's fees and taxes from eating the returns.</li>
+      <li><b>Safety exits, checked daily.</b> −15% from entry, −22% from peak, or a lower-circuit day. Money in stocks is cut to 60% only in a confirmed bear market (NEPSE below a falling 200-day average).</li>
+      <li><b>Next session &amp; T+2.</b> Orders fill at that day's VWAP + 0.25% slippage, and fail if the stock is locked at a circuit. Bought shares can't be sold until they settle 2 trading days later.</li>
+    </ol>
+    <div class="grid3 mt">
+      <div class="card gl"><b>VWAP</b><p>Volume-weighted average price: the average price everyone paid that day.</p></div>
+      <div class="card gl"><b>T+2 settlement</b><p>Shares bought today reach your demat account 2 trading days later. No intraday trading in NEPSE.</p></div>
+      <div class="card gl"><b>Circuit breaker</b><p>A stock can move at most ±10% per day. At the limit, nobody may be willing to trade.</p></div>
+      <div class="card gl"><b>Stop-loss</b><p>An automatic exit when a trade loses a set amount, to stop small losses becoming big ones.</p></div>
+      <div class="card gl"><b>Drawdown</b><p>The fall from the highest value to the lowest point after it.</p></div>
+      <div class="card gl"><b>Sharpe ratio</b><p>Return per unit of risk. Above 1 is good; above 2 is excellent.</p></div>
+    </div>
+    <div class="disclaimer">
+      ⚠️ <b>This is a simulation with virtual money</b>, for learning and research. It is not investment advice, it is not affiliated with Renaissance Technologies, and past or simulated results do not guarantee future returns. Data: ShareSansar (end-of-day). Code is open source; check the repository.
+    </div>
+  </section>
+</main>
+<footer class="wrap foot">
+  <span id="updated">—</span> · <span id="runlog"></span>
+  <span class="credit">Colours: Sanzo Wada, <i>A Dictionary of Color Combinations</i> (1933), digitised by mattdesl. Prayer-flag strip in Wada's Blue, Ivory Buff, Carmine Red, Diamine Green and Yellow Ocher.</span>
+</footer>
+
+<script src="chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
