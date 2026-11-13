@@ -111,7 +111,13 @@ def main():
     bts["equity"] = bt.s["equity"][::2] + ([bt.s["equity"][-1]] if len(bt.s["equity"]) % 2 == 0 else [])
 
     rpath = OUT / "research.json"
-    age = (dt.datetime.now().timestamp() - rpath.stat().st_mtime) / 86400 if rpath.exists() else 99
+    # Age = days between the data the research covers and the newest market data.
+    # (File modification times are useless here: a fresh git checkout resets them.)
+    try:
+        covered_to = json.loads(rpath.read_text())["period"][1]
+        age = (dt.date.fromisoformat(latest) - dt.date.fromisoformat(covered_to)).days
+    except (OSError, ValueError, KeyError, IndexError):
+        age = 99
     if new_days and age > 6 or not rpath.exists():  # weekly refresh of the pattern research
         research.main()
         run_log.append("NEPSE pattern research refreshed")
