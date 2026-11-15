@@ -28,13 +28,20 @@ EXCLUDED = {"Corporate Debentures", "Government Bonds", "Mutual Fund", "Preferen
             "Promoter Share", "Unknown"}
 
 
-def load():
+def load(end: str | None = None):
+    """Load all stored prices. `end` truncates the data (used by the no-lookahead test)."""
     df = pd.concat([pd.read_csv(f) for f in sorted((DATA / "prices").glob("*.csv"))])
     df = df.drop_duplicates(["date", "symbol"], keep="last")
+    if end:
+        df = df[df["date"] <= end]
     sectors = json.loads((DATA / "sectors.json").read_text())
     dates = sorted(df["date"].unique())
     p = lambda c: df.pivot(index="date", columns="symbol", values=c).reindex(dates)
     M = {c: p(c) for c in ["close", "high", "low", "vwap", "volume", "turnover", "prev_close"]}
+    # repair source glitches (a few 2019 rows have high < low): the range must contain close and VWAP
+    hi = pd.concat([M["high"], M["low"], M["close"], M["vwap"]]).groupby(level=0).max()
+    lo = pd.concat([M["high"], M["low"], M["close"], M["vwap"]]).groupby(level=0).min()
+    M["high"], M["low"] = hi.reindex(dates), lo.reindex(dates)
     traded = M["close"].notna() & (M["volume"] > 0)
     ret = (M["close"] / M["prev_close"] - 1).where(traded).clip(-0.11, 0.11)
     M["traded"], M["ret_raw"], M["ret"] = traded, ret, ret.fillna(0.0)
@@ -87,8 +94,26 @@ def factors(M):
         "turntrend": np.log((t.rolling(20).mean() + 1) / (t.rolling(120).mean() + 1)),
         "size": np.log(t.rolling(60, min_periods=30).median() + 1),
         "upcirc": (M["ret_raw"] >= 0.095).astype(float).rolling(20).sum(),
+        # crowd attention: is the stock suddenly trading far more than its own 1-year norm?
+        "surge": np.log((t.rolling(20).mean() + 1) / (t.rolling(250, min_periods=120).mean() + 1)),
     }
     return F
+
+
+def adjustment_events(M, threshold=-0.03):
+    """True on days the exchange cut a stock's base price (bonus / right share book closure).
+    Detected as: today's official previous-close is well below the last traded close."""
+    last_close = M["close"].ffill().shift(1)
+    adj = np.log(M["prev_close"] / last_close).where(M["traded"])
+    return adj < threshold
+
+
+def hold_mask(M, min_turn=500_000):
+    """Looser rule for stocks already owned: still trading most days and at least
+    Rs 5 lakh/day. A holding is only forced out when it becomes genuinely hard to sell."""
+    tr60 = M["traded"].rolling(60).sum()
+    med = M["turnover"].rolling(20, min_periods=10).median()
+    return (tr60 >= 40) & (med >= min_turn)
 
 
 def rank_ic(F, fwd, mask):

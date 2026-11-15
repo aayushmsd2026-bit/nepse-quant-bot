@@ -24,6 +24,7 @@ const PLATES = {
   trades: [232, [["Carmine", "#cc1236"], ["Pinkish Cinnamon", "#eeb480"], ["Deep Indigo", "#051230"]]],
   costs: [211, [["Apricot Orange", "#f68c50"], ["Olive Yellow", "#a6a159"], ["Deep Indigo", "#051230"]]],
   how: [155, [["Jasper Red", "#eb5324"], ["Benzol Green", "#00978d"], ["Deep Indigo", "#051230"]]],
+  robust: [247, [["Raw Sienna", "#bb7125"], ["Apricot Yellow", "#ffdd00"], ["Benzol Green", "#00978d"], ["Deep Lyons Blue", "#1c4286"]]],
 };
 function plates() {
   $$(".plate[data-plate]").forEach(el => {
@@ -33,7 +34,7 @@ function plates() {
   });
 }
 
-let RES = null;
+let RES = null, ROB = null;
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
@@ -42,8 +43,11 @@ async function load() {
   $("#updated").textContent = `Last bot run: ${META.updated} · latest market data: ${META.latest_market_date}`;
   $("#runlog").textContent = (META.run_log || []).slice(1).join(" · ");
   try { RES = await get("research.json"); } catch (e) { RES = null; }
+  try { ROB = await get("robustness.json"); } catch (e) { ROB = null; }
+  $("#modelTag").textContent = META.model ? "· MODEL " + META.model.toUpperCase() : "";
   render();
   if (RES) research();
+  if (ROB) robustness();
 }
 
 function render() {
@@ -55,7 +59,7 @@ function render() {
     B.innerHTML = `<b>🟢 Live paper trading</b> since <b>${S.inception}</b>, with real NEPSE prices and virtual money (${rs(S.start_capital)}). The bot runs by itself after every trading day; this page updates automatically. Day <b>${S.equity.length}</b> of the experiment.`;
   } else {
     B.className = "banner bt";
-    B.innerHTML = `<b>⟲ Historical simulation.</b> What the <i>exact same bot</i> would have done since <b>${S.inception}</b>, deciding each day with only the data available at that time. Covers the COVID shutdown, the 2020–21 mania, the 2022–23 crash and the September 2025 shutdown. The model was designed on data up to <b>${META.split}</b>; everything after is an unseen <b>hold-out test</b>.`;
+    B.innerHTML = `<b>⟲ Historical simulation.</b> What the <i>exact same bot</i> would have done since <b>${S.inception}</b>, deciding each day with only the data available at that time. Covers the COVID shutdown, the 2020–21 mania, the 2022–23 crash and the September 2025 shutdown. The model was designed on data up to <b>${META.split}</b>; everything after is an unseen <b>hold-out test</b>. This is one of four tested start dates; see <a href="#robust">Robustness</a> for the range and the caveats.`;
   }
   kpis(S); story(S); record(S); equityChart(S); holdings(S); orders(S); brain(S); weightChart(S); terminal(S); trades(S); fees(S);
 }
@@ -96,10 +100,11 @@ function story(S) {
   const more = day.log.length - lines.length;
   $("#story").innerHTML = lines.map(l => `<div class="line"><span class="ic">${KIND[l.k]?.[1] || "•"}</span><span>${esc(l.m)}</span></div>`).join("")
     + (more > 0 ? `<a class="muted" href="#log">+ ${more} more steps in the activity log →</a>` : "");
-  const b = S.brain || {};
-  $("#mood").textContent = b.regime || "—";
-  $("#gross").textContent = b.gross ? Math.round(b.gross * 100) + "%" : "—";
-  $("#moodNeedle").style.left = ({ Bearish: "15%", Neutral: "50%", Bullish: "85%" }[b.regime] || "50%");
+  const b = S.brain || {}, hv = Object.values(b.health || {});
+  const okN = hv.filter(v => v === "ok").length;
+  $("#mood").textContent = hv.length ? `${okN} of ${hv.length}` : "—";
+  $("#gross").textContent = b.next_review != null ? (b.next_review ? `in ${b.next_review} days` : "today") : "—";
+  $("#moodNeedle").style.left = hv.length ? `${8 + 84 * okN / hv.length}%` : "50%";
 }
 
 function fmtDate(d) {
@@ -174,7 +179,7 @@ function holdings(S) {
       <div class="row"><span>Value</span><b>${rs(p.value)}</b></div>
       <div class="row"><span>Profit / loss</span><b class="${cls(p.pnl)}">${rs(p.pnl)}</b></div>
       ${spark(p.hist)}
-      <div class="row" style="margin-top:8px">${lock}</div>
+      <div class="row" style="margin-top:8px">${lock}${p.review_in != null ? `<span class="muted" title="Each holding is re-checked every 60 trading days">review in ${p.review_in}d</span>` : ""}</div>
       <div class="why"><b>Why bought:</b> ${esc(p.reason)}<div class="spark" title="Signal strengths at purchase">${bars}</div></div>
     </div>`;
   }).join("");
@@ -189,14 +194,16 @@ function orders(S) {
 function brain(S) {
   const b = S.brain; if (!b) return;
   const sig = META.signals;
-  const pri = b.priors || {};
-  const mx = Math.max(...Object.values(b.weights).map(Math.abs), ...Object.values(pri).map(Math.abs), 0.01);
+  const hl = b.health || {};
+  const mx = Math.max(...Object.values(b.weights).map(Math.abs), 0.01);
   $("#weights").innerHTML = Object.entries(b.weights).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).map(([k, w]) => {
+    if (!sig[k]) return "";
     const wd = Math.abs(w) / mx * 50, pos = w >= 0;
-    return `<div class="wrow"><div class="nm">${sig[k].name}<small>${sig[k].desc}</small></div>
-      <div class="wbar" title="Now ${(w * 100).toFixed(0)}% · research starting point ${((pri[k] || 0) * 100).toFixed(0)}%"><span style="background:${pos ? css("--green") : css("--red")};${pos ? `left:50%;width:${wd}%` : `right:50%;width:${wd}%`}"></span>${k in pri ? `<i class="prior" style="left:${50 + (pri[k] / mx) * 50}%"></i>` : ""}</div>
+    const badge = hl[k] ? `<span class="hb ${hl[k]}" title="Over the last year this signal has ${hl[k] === "ok" ? "pointed the right way" : "pointed the wrong way"}">${hl[k] === "ok" ? "WORKING" : "STRUGGLING"}</span>` : "";
+    return `<div class="wrow"><div class="nm">${sig[k].name}${badge}<small>${sig[k].desc}</small></div>
+      <div class="wbar" title="Weight ${(w * 100).toFixed(0)}%"><span style="background:${pos ? css("--green") : css("--red")};${pos ? `left:50%;width:${wd}%` : `right:50%;width:${wd}%`}"></span></div>
       <div class="pc ${pos ? "up" : "down"}">${(w * 100).toFixed(0)}%</div></div>`;
-  }).join("") + `<p class="hint">Green = the bot buys stocks scoring high on this. Red = it learned this signal works <b>in reverse</b> on NEPSE, so high scores count against a stock. ▼ = where 8 years of research put it; the bar = today's learned trust.</p>`;
+  }).join("") + `<p class="hint">Green bar = the bot prefers stocks scoring <b>high</b> on this. Red bar = it prefers stocks scoring <b>low</b> (the signal marks stocks to avoid).</p>`;
   $("#uniN").textContent = b.universe;
   const keys = Object.keys(sig);
   const color = v => { const a = Math.min(1, Math.abs(v) / 2.5); const c = v >= 0 ? css("--heat-pos") : css("--heat-neg"); return `background:color-mix(in srgb, ${c} ${Math.round(a * 85)}%, ${css("--heat-mid")});color:${a > .5 ? "#f5ecc2" : css("--ink")}`; };
@@ -205,29 +212,29 @@ function brain(S) {
 }
 
 function weightChart(S) {
-  let wh = S.weight_history || [], note = "";
-  if (wh.length < 5) { wh = DATA.backtest.weight_history || []; note = "From the historical simulation"; }
+  let wh = S.health_history || [], note = "";
+  if (wh.length < 30) { wh = DATA.backtest.health_history || []; note = "From the historical simulation"; }
   $("#multNote").textContent = note;
-  const sig = META.signals, keys = Object.keys(sig), pri = (S.brain || DATA.backtest.brain || {}).priors || {};
+  const sig = META.signals, keys = Object.keys(sig);
   Object.values(charts.mult || {}).forEach(c => c.destroy());
   charts.mult = {};
-  const lim = Math.max(10, ...wh.flatMap(w => keys.map(k => Math.abs(w[k] * 100)))) * 1.05;
+  const val = (w, k) => (w[k] ?? 0) * 100 * Math.sign(sig[k].prior || 1);   // >0 = working as expected
+  const lim = Math.max(8, ...wh.flatMap(w => keys.map(k => Math.abs(val(w, k))))) * 1.05;
   $("#mults").innerHTML = keys.map(k => {
-    const last = (wh.at(-1)?.[k] ?? 0) * 100;
-    return `<div class="mult"><div class="mh"><b title="${esc(sig[k].desc)}">${sig[k].name}</b><span class="${cls(last)}">${last >= 0 ? "+" : ""}${last.toFixed(0)}%</span></div><div class="mc"><canvas id="m_${k}" aria-label="${sig[k].name} trust over time"></canvas></div></div>`;
+    const last = wh.length ? val(wh.at(-1), k) : 0;
+    return `<div class="mult"><div class="mh"><b title="${esc(sig[k].desc)}">${sig[k].name}</b><span class="${cls(last)}">${last >= 0 ? "working" : "struggling"}</span></div><div class="mc"><canvas id="m_${k}" aria-label="${sig[k].name} health over time"></canvas></div></div>`;
   }).join("");
   const tip = { backgroundColor: css("--ink"), titleColor: css("--bg"), bodyColor: css("--bg"), padding: 8, displayColors: false };
   keys.forEach(k => {
     charts.mult[k] = new Chart($("#m_" + k), {
       type: "line",
       data: { labels: wh.map(w => w.date), datasets: [
-        { data: wh.map(w => w[k] * 100), borderColor: css("--ink2"), borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 4, tension: .3,
+        { data: wh.map(w => val(w, k)), borderColor: css("--ink2"), borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 4, tension: .3,
           fill: { target: { value: 0 }, above: css("--green") + "40", below: css("--red") + "40" } },
-        { data: wh.map(() => (pri[k] ?? 0) * 100), borderColor: css("--amber"), borderDash: [3, 3], borderWidth: 1, pointRadius: 0, pointHoverRadius: 0 },
         { data: wh.map(() => 0), borderColor: css("--muted") + "66", borderWidth: 1, pointRadius: 0, pointHoverRadius: 0 }] },
       options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
-        plugins: { legend: { display: false }, tooltip: { ...tip, filter: c => c.datasetIndex < 2,
-          callbacks: { label: c => c.datasetIndex ? `Research start: ${c.parsed.y.toFixed(0)}%` : `Trust: ${c.parsed.y.toFixed(0)}%` } } },
+        plugins: { legend: { display: false }, tooltip: { ...tip, filter: c => c.datasetIndex < 1,
+          callbacks: { label: c => `Predictive strength: ${c.parsed.y.toFixed(1)} (${c.parsed.y >= 0 ? "working" : "against the model"})` } } },
         scales: { x: { display: false }, y: { display: false, min: -lim, max: lim } } },
     });
   });
@@ -274,7 +281,7 @@ function fees(S) {
   const f = { ...S.fees, small: (S.fees.sebon || 0) + (S.fees.dp || 0) }, items = [
     ["commission", "Broker commission", "0.24–0.36% of every buy and sell, set by SEBON", css("--c2")],
     ["cgt", "Capital gains tax", "7.5% of profit on shares held under a year (5% if longer)", css("--c1")],
-    ["slippage", "Slippage", "Paying slightly worse than the day's average price (simulated 0.25%)", css("--c3")],
+    ["slippage", "Slippage", "Paying worse than the day's average price: grows with order size and how thinly the stock trades", css("--c3")],
     ["small", "Small fees", "SEBON 0.015% per trade + DP charge Rs 25 per stock sold", css("--c4")],
   ];
   const tot = items.reduce((a, [k]) => a + (f[k] || 0), 0);
@@ -307,7 +314,7 @@ function record(S) {
     + `<div class="model muted">* "Avg stock" = equal amounts in every liquid stock, rebalanced daily with zero costs. No real investor can get this exactly; it shows how hard a pure stock picker's job is.</div>`;
 }
 
-const FN = { pressure: "Closing pressure", calm60: "Low volatility (60d)", calm: "Low volatility (20d)", maxret: "No lottery spikes", upcirc: "Circuit chasing", high52: "Near 52-week high", reversal: "Short-term bounce", rev20: "1-month reversal", momentum: "3-month momentum", mom120: "6-month momentum", mom250: "12-month momentum", meanrev: "Rubber band", volume: "Volume confirmation", quality: "Trend quality", sector: "Sector rotation (1m)", sector60: "Sector rotation (3m)", turntrend: "Turnover trend", size: "Company size" };
+const FN = { pressure: "Closing pressure", calm60: "Low volatility (60d)", calm: "Low volatility (20d)", maxret: "No lottery spikes", upcirc: "Circuit chasing", high52: "Near 52-week high", reversal: "Short-term bounce", rev20: "1-month reversal", momentum: "3-month momentum", mom120: "6-month momentum", mom250: "12-month momentum", meanrev: "Rubber band", volume: "Volume confirmation", quality: "Trend quality", sector: "Sector rotation (1m)", sector60: "Sector rotation (3m)", turntrend: "Turnover trend (short)", size: "Crowded trading (turnover)", surge: "Turnover surge" };
 
 function research() {
   const R = RES, st = R.stocks.h20, s5 = R.stocks.h5, mk = R.market, cb = R.circuits;
@@ -317,15 +324,18 @@ function research() {
   const yrsNeg = Object.values(s5.pressure.ic_by_year).filter(v => v < 0).length, yrsAll = Object.keys(s5.pressure.ic_by_year).length;
   const calmY = Object.entries(st.calm60.ic_by_year), calmPos = calmY.filter(([, v]) => v > 0).length;
   const t50 = mk.trend.sma50;
+  const neg = o => Object.values(o).filter(v => v < 0).length, cnt = o => Object.keys(o).length;
+  const sz = st.size, sens = Object.fromEntries(((ROB || {}).sensitivity || []).map(r => [r.label, r]));
+  const base = sens["Chosen settings"], stp = sens["With 15% stop-loss + 22% trailing"], bear = sens["With bear-market cash filter"], lrn = sens["Weights half re-learned each day"];
   const F = [
-    ["🎯", "Closing pressure works in reverse", `Stocks that close above the day's average price did <b>worse</b> over the next week in ${yrsNeg} of ${yrsAll} years. Late-day pushes tend to unwind. The most reliable pattern found.`, "use", "Used: strongest signal (counts against)"],
-    ["🐢", "Boring beats exciting… usually", `Calm stocks without lottery-like spikes did better in ${calmPos} of ${calmY.length} years, but badly lagged in the 2020–21 mania. That's why the bot's trust in it adapts.`, "use", "Used: weight adapts"],
-    ["🚦", "Circuits: don't chase, don't catch knives", `After hitting the −10% lower circuit, stocks fell another ${Math.abs(cb.after_lower_next5).toFixed(1)}% over the next week on average. After the +10% upper circuit: ${pct(cb.after_upper_next5, 1)} the following week, so chasing doesn't pay.`, "use", "Used: never-buy rules"],
-    ["📉", "Momentum doesn't work on NEPSE", `The classic "buy what went up for 3–12 months" signal had no reliable edge here (12-month IC ${st.mom250.ic_design[0].toFixed(3)} design, ${st.mom250.ic_holdout[0].toFixed(3)} hold-out). Global textbook rules don't automatically apply to Nepal.`, "no", "Starts at zero weight"],
-    ["🧭", "Simple market timing failed", `Being in stocks only when NEPSE is above its 50-day average returned ${pct(t50.design.overlay_ret, 0)} vs ${pct(t50.design.buyhold_ret, 0)} buy-and-hold in design, and ${pct(t50.holdout.overlay_ret, 0)} vs ${pct(t50.holdout.buyhold_ret, 0)} in the hold-out.`, "no", "Replaced by a bear-market-only filter"],
-    ["💸", "Fees decide everything", `A NEPSE round-trip costs ~0.85% plus 7.5% tax on profit. Signals that change every week can't beat that. Reviewing every 40 days instead of 10–20 turned a losing model into a profitable one.`, "use", "Used: 40-day review cycle"],
-    ["🪔", "Festivals & months: mostly noise", `NEPSE rose ${mk.holidays.pre5_avg}% on average in the week before long holidays (vs ${mk.holidays.any5_avg}% for any week). Monthly patterns swing wildly with only ${y1 - y0} years of data.`, "no", "Not used"],
-    ["🌊", "Weekly trends persist slightly", `NEPSE's weekly returns are positively correlated (${mk.autocorr.weekly}): good weeks tend to follow good weeks, a sign of a retail-driven market. Too weak to trade alone after costs.`, "info", "Monitored"],
+    ["🤫", "The crowd's favourites lag; quiet stocks lead", `The most heavily traded stocks did <b>worse</b> than quiet ones in ${neg(sz.ic_by_year)} of ${cnt(sz.ic_by_year)} years. It is the strongest pattern in the data, and one a small account can use because big funds cannot buy thinly traded stocks.`, "use", "Used: biggest weight"],
+    ["🎯", "Late-day pushes unwind", `Stocks that close above the day's average price did <b>worse</b> over the next week in ${yrsNeg} of ${yrsAll} years. Someone pushing the closing price up rarely lasts.`, "use", "Used: signal + never-buy rule"],
+    ["🚦", "Circuits: don't chase, don't catch knives", `After hitting the −10% lower circuit, stocks fell another ${Math.abs(cb.after_lower_next5).toFixed(1)}% over the next week on average. After the +10% upper circuit: ${pct(cb.after_upper_next5, 1)} the following week, so chasing doesn't pay.`, "use", "Used: never-buy rules + exit"],
+    ["🛑", "Stop-losses destroyed value", stp && base ? `Adding a 15% stop-loss cut the design-period return from ${pct(base.avg, 0)} to ${pct(stp.avg, 0)} and doubled the number of trades (${stp.trades} vs ${base.trades}). Stocks sold by the stop did not keep falling; the stop just locked in the loss.` : `Stocks sold by a stop-loss did not keep falling afterwards, so the stop only locked in the loss and paid another round of fees.`, "no", "Removed in v3"],
+    ["🧭", "Market timing failed", `Being in stocks only when NEPSE is above its 50-day average returned ${pct(t50.design.overlay_ret, 0)} vs ${pct(t50.design.buyhold_ret, 0)} buy-and-hold in design, and ${pct(t50.holdout.overlay_ret, 0)} vs ${pct(t50.holdout.buyhold_ret, 0)} in the hold-out.${bear && base ? ` A bear-market cash filter also failed to shrink the worst drop (${pct(bear.dd, 0)} vs ${pct(base.dd, 0)}).` : ""}`, "no", "Removed in v3"],
+    ["🧠", "Simple beat clever", lrn && base ? `Letting the bot re-learn its signal weights every day gave ${pct(lrn.avg, 0)} with a wide spread (${pct(lrn.min, 0)} to ${pct(lrn.max, 0)}). Fixed research weights gave ${pct(base.avg, 0)} (${pct(base.min, 0)} to ${pct(base.max, 0)}). The extra cleverness was mostly noise.` : `Fixed research weights were more stable than re-learning them every day.`, "use", "Used: fixed weights + health monitor"],
+    ["📉", "Momentum doesn't work on NEPSE", `The classic "buy what went up for 3–12 months" signal had no reliable edge here (12-month IC ${st.mom250.ic_design[0].toFixed(3)} design, ${st.mom250.ic_holdout[0].toFixed(3)} hold-out). Global textbook rules don't automatically apply to Nepal.`, "no", "Not used"],
+    ["💸", "Fees decide everything", `A NEPSE round-trip costs about 0.9% plus 7.5% tax on profit. v2 gave up roughly half its gross return to costs. v3 reviews each holding only every 60 trading days and keeps it while it stays in the better half.`, "use", "Used: slow, staggered reviews"],
   ];
   const fc = { use: "--green", no: "--red", info: "--blue" };
   $("#findings").innerHTML = F.map(([i, t, d, c, tag]) => `<div class="finding" style="--fc:var(${fc[c]})"><span class="fi">${i}</span><b>${t}</b><p>${d}</p><span class="tag2 ${c}">${tag}</span></div>`).join("");
@@ -380,6 +390,33 @@ function research() {
   });
 }
 
+function robustness() {
+  const R = ROB;
+  $$(".rbCut").forEach(e => e.textContent = R.split);
+  const st = R.starts || [];
+  const avg = k => st.reduce((a, r) => a + r[k], 0) / (st.length || 1);
+  $("#rbStarts").innerHTML = `<thead><tr><th>Started on</th><th>Design</th><th>NEPSE</th><th>Hold-out</th><th>NEPSE</th><th>Avg stock</th><th>Worst drop</th></tr></thead><tbody>` +
+    st.map(r => `<tr><td><b>${r.start}</b></td><td class="${cls(r.design)}">${pct(r.design, 0)}</td><td class="muted">${pct(r.design_nepse, 0)}</td><td class="${cls(r.holdout)}"><b>${pct(r.holdout, 1)}</b></td><td class="muted">${pct(r.holdout_nepse, 1)}</td><td class="muted">${pct(r.holdout_ew, 1)}</td><td class="down">${pct(r.holdout_dd, 0)}</td></tr>`).join("") +
+    (R.fresh ? `<tr><td><b>Fresh Rs 5 lakh on ${R.fresh.start}</b></td><td class="muted">—</td><td class="muted">—</td><td class="${cls(R.fresh.holdout)}"><b>${pct(R.fresh.holdout, 1)}</b></td><td class="muted">${pct(R.fresh.holdout_nepse, 1)}</td><td class="muted">${pct(R.fresh.holdout_ew, 1)}</td><td class="down">${pct(R.fresh.holdout_dd, 0)}</td></tr>` : "") +
+    (st.length ? `<tr class="chosen"><td><b>Average</b></td><td>${pct(avg("design"), 0)}</td><td class="muted">${pct(avg("design_nepse"), 0)}</td><td><b>${pct(avg("holdout"), 1)}</b></td><td class="muted">${pct(avg("holdout_nepse"), 1)}</td><td class="muted">${pct(avg("holdout_ew"), 1)}</td><td class="down">${pct(avg("holdout_dd"), 0)}</td></tr>` : "") + "</tbody>";
+  const eh = st.map(r => r.edge_holdout).filter(Boolean), ea = st.map(r => r.edge_all).filter(Boolean);
+  const m = (a, k) => a.reduce((x, r) => x + r[k], 0) / (a.length || 1);
+  $("#rbEdge").innerHTML = eh.length ? `Monthly edge over NEPSE: <b>${pct(m(ea, "monthly_pct"), 2)}</b> over the whole period (t = ${m(ea, "t").toFixed(1)}), but only <b>${pct(m(eh, "monthly_pct"), 2)}</b> in the hold-out (t = ${m(eh, "t").toFixed(1)}; above 2 would be convincing). In the hold-out the bot beat NEPSE in ${m(eh, "win_months_pct").toFixed(0)}% of months.` : "";
+  const S = R.sensitivity || [], mxv = Math.max(...S.map(r => r.avg), 1);
+  $("#rbSens").innerHTML = `<thead><tr><th>Setting</th><th>Design return</th><th>Range</th><th>Worst drop</th><th>Trades</th></tr></thead><tbody>` +
+    S.map((r, i) => `<tr class="${i === 0 ? "chosen" : ""}"><td><b>${esc(r.label)}</b></td><td>${pct(r.avg, 0)}<span class="bar2" style="width:${Math.max(0, r.avg) / mxv * 70}px;background:${r.avg >= R.design_nepse ? css("--c1") : css("--red")}"></span></td><td class="muted">${pct(r.min, 0)} to ${pct(r.max, 0)}</td><td class="down">${pct(r.dd, 0)}</td><td class="muted">${r.trades}</td></tr>`).join("") +
+    `<tr><td class="muted">NEPSE index, same period</td><td class="muted">${pct(R.design_nepse, 0)}</td><td></td><td></td><td></td></tr></tbody>`;
+  const lo = Math.min(...S.map(r => r.avg)), hi = Math.max(...S.map(r => r.avg));
+  $("#rbSensNote").textContent = `Every variation returned between ${pct(lo, 0)} and ${pct(hi, 0)} in the design period, against ${pct(R.design_nepse, 0)} for NEPSE. No single setting is doing the work.`;
+  const hAvg = avg("holdout"), hN = avg("holdout_nepse"), hE = avg("holdout_ew"), fr = R.fresh;
+  $("#rbVerdict").innerHTML = `<h3>The honest verdict</h3><ul>
+    <li><b>What held up:</b> v3 is far better than the earlier versions in the design period, stays good when any setting is changed, and survives doubled trading costs. On unseen data, portfolios that were already running made ${pct(hAvg, 1)} on average against ${pct(hN, 1)} for NEPSE and ${pct(hE, 1)} for the average stock.</li>
+    <li><b>What did not:</b> ${fr ? `a <b>fresh</b> Rs 5 lakh portfolio started on ${fr.start} made only <b>${pct(fr.holdout, 1)}</b> against ${pct(fr.holdout_nepse, 1)} for NEPSE. ` : ""}The huge design-period lead (${pct(avg("design"), 0)} vs ${pct(avg("design_nepse"), 0)}) did not carry over: in the hold-out the monthly edge is statistically zero, and in 2025–26 the big, heavily traded banks led while quiet stocks lagged. There is <b>no proof yet that this beats NEPSE going forward</b>.</li>
+    <li><b>What to expect:</b> returns close to the average NEPSE stock, ahead of the index in broad rallies (2021, 2024) and behind it when a few large stocks lead (2025–26). The worst historical drop was about ${pct(S.length ? S[0].dd : null, 0)}.</li>
+    <li><b>Known gaps:</b> cash dividends are not counted (a small understatement), merged stocks are settled at their last price, and thinly traded stocks can be harder to sell in a panic than any model assumes. The strategy also stops scaling at roughly Rs 20 lakh, because quiet stocks cannot absorb bigger orders.</li>
+    <li><b>Why keep running it live:</b> a backtest is an argument; the live tab is the evidence. Every trading day adds to it.</li></ul>`;
+}
+
 /* ---- events */
 $$(".mode button").forEach(b => b.onclick = () => { mode = b.dataset.mode; render(); });
 $("#rangeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; range = +b.dataset.r; $$("#rangeSeg button").forEach(x => x.classList.toggle("on", x === b)); equityChart(DATA[mode]); };
@@ -398,6 +435,7 @@ $("#theme").onclick = () => {
   setThemeIcon();
   render();
   if (RES) research();
+  if (ROB) robustness();
 };
 try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
 setThemeIcon();

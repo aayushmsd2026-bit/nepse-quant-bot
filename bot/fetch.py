@@ -240,15 +240,66 @@ def fetch_index(start: str):
     print(f"index: {len(merged)} days ({len(rows)} fetched)")
 
 
-def update_latest() -> list[str]:
-    """Fetch any trading days after the last stored one (used by the daily job)."""
+NPT = dt.timezone(dt.timedelta(hours=5, minutes=45))
+MARKET_CLOSE = dt.time(15, 10)      # NEPSE closes at 15:00; allow 10 minutes for the final prices
+
+
+def day_counts(n: int = 10) -> list[int]:
+    """Number of stocks stored for each of the last n trading days."""
+    files = year_files()[-2:]
+    counts: dict[str, int] = {}
+    for f in files:
+        with f.open() as fh:
+            for r in csv.DictReader(fh):
+                counts[r["date"]] = counts.get(r["date"], 0) + 1
+    return [counts[d] for d in sorted(counts)[-n:]]
+
+
+def validate_day(rows: list[dict], typical: float) -> str | None:
+    """Return a reason to REJECT a freshly downloaded day, or None if it looks sane."""
+    if len(rows) < max(50, 0.6 * typical):
+        return f"only {len(rows)} stocks (normally ~{typical:.0f}): looks incomplete"
+    bad = [r["symbol"] for r in rows if not (r.get("close", 0) > 0 and r.get("vwap", 0) > 0 and r.get("volume", 0) > 0)]
+    if len(bad) > 0.05 * len(rows):
+        return f"{len(bad)} stocks have missing price/volume fields"
+    moves = [abs(r["close"] / r["prev_close"] - 1) for r in rows if r.get("prev_close", 0) > 0]
+    wild = sum(m > 0.12 for m in moves)       # beyond the 10% circuit: only new listings / adjustments
+    if wild > 0.1 * len(rows):
+        return f"{wild} stocks moved more than the 10% circuit allows"
+    return None
+
+
+def update_latest(now: dt.datetime | None = None) -> tuple[list[str], list[str]]:
+    """Fetch trading days after the last stored one (used by the daily job).
+
+    Safety: today's prices are only accepted after the market has closed (otherwise a
+    run during trading hours would store half-day prices as the final close), and each
+    new day must pass `validate_day`. Returns (stored_dates, notes)."""
+    now = now or dt.datetime.now(NPT)
     have = load_dates()
-    last = dt.date.fromisoformat(max(have)) if have else dt.date.today() - dt.timedelta(30)
-    new = fetch_range(last + dt.timedelta(1), dt.date.today(), workers=2)
+    last = dt.date.fromisoformat(max(have)) if have else now.date() - dt.timedelta(30)
+    counts = day_counts()
+    typical = sorted(counts)[len(counts) // 2] if counts else 0
+    client, stored, notes = Client(), [], []
+    d = last + dt.timedelta(1)
+    while d <= now.date():
+        if d == now.date() and now.time() < MARKET_CLOSE:
+            notes.append(f"{d}: market still open ({now:%H:%M} NPT), not fetching today's prices yet")
+            break
+        rows = client.day(d.isoformat())
+        if rows:
+            why = validate_day(rows, typical)
+            if why:
+                notes.append(f"{d}: data rejected, {why}; will retry on the next run")
+                break                      # never skip a day: later days depend on it
+            append_rows(rows)
+            stored.append(d.isoformat())
+            print(f"  {d}: {len(rows)} stocks", flush=True)
+        d += dt.timedelta(1)
     fetch_index((last - dt.timedelta(10)).isoformat())
-    if new and (not SECTORS.exists() or dt.date.today().weekday() == 6):  # refresh on Sundays
+    if stored and (not SECTORS.exists() or now.weekday() == 6):  # refresh on Sundays
         fetch_sectors()
-    return new
+    return stored, notes
 
 
 if __name__ == "__main__":
@@ -262,4 +313,4 @@ if __name__ == "__main__":
     elif cmd == "sectors":
         fetch_sectors(history=True)
     else:
-        print("new days:", update_latest())
+        print("new days: %s, notes: %s" % update_latest())

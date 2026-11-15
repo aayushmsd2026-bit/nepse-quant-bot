@@ -1,24 +1,29 @@
-"""Sagarmatha Signal Engine v2: a paper-trading quant model built for NEPSE.
+"""Sagarmatha Signal Engine v3: a paper-trading quant model built for NEPSE.
 
-Inspired by the publicly known *principles* of Renaissance Technologies
-(their real models are secret): many weak statistical signals, weights learned
-from data walk-forward, small diversified positions, strict cost and risk control.
+Inspired by the publicly known *principles* of Renaissance Technologies (their
+real models are secret): many weak statistical signals, weights learned from
+data walk-forward, diversified positions, obsessive attention to trading costs.
 
-v2 is rebuilt from 8 years of NEPSE research (see bot/research.py). Findings that
-shaped it, all confirmed on a hold-out period the design never saw:
-  * Closing pressure (close above VWAP) predicts *lower* future returns, in every year.
-  * "Boring beats exciting": calm stocks without lottery-like spikes outperform,
-    except in euphoric bull runs (2020-21), so its weight must adapt.
-  * After a lower-circuit day a stock keeps falling (~-2.5% next week); after an
-    upper-circuit day there is no further gain on average. Chasing doesn't pay.
-  * 3/6/12-month momentum, sector rotation and calendar months: no reliable edge.
-  * The signals are better at telling you what to AVOID than what to buy, and
-    NEPSE round-trip costs (~0.85% + 7.5% CGT) punish turnover. Hence: a
-    diversified 12-stock portfolio, reviewed every 40 trading days, hard
-    "never buy" filters, and holdings kept while they stay in the top third.
+What 8 years of NEPSE data say (bot/research.py; design period 2019-01..2024-06,
+everything after is a hold-out):
 
-Adapted to NEPSE reality: long-only, T+2 settlement, ±10% circuits, thin
-liquidity, broker commission, SEBON fee, DP charge and capital-gains tax.
+  * NEPSE punishes crowd attention. The most heavily traded stocks, stocks whose
+    turnover just surged, stocks pushed up into the close, circuit-chasers and
+    one-day "lottery" spikes all underperform afterwards. Quiet, ignored, steady
+    stocks outperform. A small account can own those; big funds cannot.
+  * After a bonus/right-share price adjustment, and after a lower-circuit day,
+    stocks keep underperforming. After an upper-circuit day there is no follow-through.
+  * Momentum, sector rotation, calendar effects and index trend-timing have no
+    reliable edge here.
+  * Fixed stop-losses destroyed value: stopped-out stocks did not keep falling,
+    so the stop only locked in the loss and paid another round-trip.
+  * Costs decide everything (~0.9% round-trip + 7.5% CGT), so the portfolio is
+    reviewed only every 60 trading days and holdings are kept while they stay
+    in the better half.
+
+Simulation realism: long-only, T+2 settlement, +/-10% circuits, VWAP fills with a
+square-root market-impact cost model, 5% volume cap, SEBON commission tiers,
+SEBON fee, DP charge, capital-gains tax, bonus/right adjustments, suspensions.
 Everything here is a SIMULATION with virtual money.
 """
 from __future__ import annotations
@@ -34,34 +39,33 @@ from . import research
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
+MODEL_VERSION = "v3"
 
 # ------------------------------------------------------------------ the signals
 # key: (display name, plain-English description, research factor, prior weight)
-# Prior weights come from the 2019-2024 design-period research (sign and rough size).
+# Priors come from the 2019-2024 design-period research (sign and rough size).
+# A negative weight means "high score counts AGAINST the stock".
 SIGNALS = {
-    "pressure": ("Closing pressure",
-                 "Closing above the day's average price (VWAP). On NEPSE this predicts LOWER returns: "
-                 "late-day pushes tend to unwind.", "pressure", -0.30),
+    "crowd": ("Crowded trading",
+              "How heavily the stock is traded (60-day turnover). On NEPSE the most-traded stocks "
+              "underperform and quiet ones outperform: the strongest pattern in the data.", "size", -0.32),
     "calm": ("Low volatility",
-             "Calm, steady stocks (60-day volatility). Works in normal and falling markets; "
-             "fails in euphoric bull runs.", "calm60", 0.22),
+             "Calm, steady stocks (60-day volatility). Helps avoid the wild names; lags in euphoric bull runs.",
+             "calm60", 0.16),
+    "surge": ("Turnover surge",
+              "Is the stock suddenly trading far more than its own 1-year normal? "
+              "A surge of attention tends to be followed by weaker returns.", "surge", -0.12),
+    "pressure": ("Closing pressure",
+                 "Closing above the day's average price (VWAP). Late-day pushes tend to unwind.",
+                 "pressure", -0.12),
     "nolottery": ("No lottery spikes",
                   "Stocks WITHOUT a recent huge one-day jump. Spiky 'lottery' stocks tend to disappoint later.",
-                  "maxret", 0.18),
-    "bounce": ("Short-term bounce",
-               "Stocks that fell more than their sector over the last 5 days tend to recover a little.",
-               "reversal", 0.10),
+                  "maxret", 0.10),
     "high52": ("Near 52-week high",
                "Stocks close to their 1-year high tend to keep doing slightly better.", "high52", 0.10),
     "chasing": ("Circuit chasing",
-                "How often the stock hit the +10% upper circuit in the last 20 days. Frequent "
-                "circuit-hitters tend to fall back later.", "upcirc", -0.10),
-    "momentum": ("3-month momentum",
-                 "The global classic. No reliable edge on NEPSE, so it starts at zero weight; "
-                 "the bot will use it only if it starts working.", "momentum", 0.0),
-    "size": ("Company size",
-             "Bigger, more-traded companies vs smaller ones. Direction flips by year, so it starts at zero.",
-             "size", 0.0),
+                "How often the stock hit the +10% upper circuit in the last 20 days. "
+                "Frequent circuit-hitters tend to fall back.", "upcirc", -0.08),
 }
 SIG_KEYS = list(SIGNALS)
 
@@ -69,24 +73,31 @@ SIG_KEYS = list(SIGNALS)
 @dataclass
 class Config:
     start_capital: float = 500_000.0
-    max_positions: int = 12
-    max_weight: float = 0.12          # per stock
+    max_positions: int = 16
+    max_weight: float = 0.08          # per stock
     max_sector_weight: float = 0.35
     min_order: float = 10_000.0
-    review_every: int = 40            # full review every 40 trading days (~2 months)
+    review_every: int = 60            # each holding is reviewed every 60 trading days (~3 months)
+    stagger: int = 3                  # initial holdings get review dates spread over 3 waves
+    trim_above: float | None = None   # at review, trim a winner back to target if above this weight
     buy_top_pct: float = 0.15         # new buys come from the top 15%
-    keep_top_pct: float = 0.35        # at review, keep anything still in the top 35%
-    emergency_stop: float = 0.15      # exit if down 15% from entry
-    trailing_stop: float = 0.22       # ...or 22% below its peak
+    keep_top_pct: float = 0.50        # at review, keep anything still in the better half
+    stop_loss: float | None = None    # fixed stop-loss (research: destroys value -> off)
+    trailing_stop: float | None = None
+    lower_circuit_exit: bool = True   # sell after a lower-circuit day
     pressure_veto: float = 0.10       # never buy the 10% with the heaviest closing pressure
-    bear_gross: float = 0.60          # money in stocks during a confirmed bear market
-    normal_gross: float = 0.97
-    slippage: float = 0.0025
+    postadj_veto_days: int = 20       # never buy within 20 days of a bonus/right adjustment
+    bear_gross: float = 0.98          # no market timing: tested, it did not cut drawdowns (set <0.98 to re-enable)
+    normal_gross: float = 0.98
+    half_spread: float = 0.0015       # cost of crossing the spread
+    impact_coef: float = 1.0          # square-root market impact: coef * daily vol * sqrt(order / day turnover)
+    max_slippage: float = 0.02
     max_volume_share: float = 0.05
-    ic_horizon: int = 20
+    halt_days: int = 60               # no trades for this long -> treated as suspended/merged
+    ic_horizon: int = 40
     ic_lookback: int = 250
-    ic_halflife: int = 60
-    prior_mix: float = 0.5            # 50% 8-year research prior, 50% learned from the last year
+    ic_halflife: int = 80
+    prior_mix: float = 1.0            # 1.0 = fixed research weights (more robust than re-learning; see README)
     priors: dict = field(default_factory=lambda: {k: v[3] for k, v in SIGNALS.items()})
 
 
@@ -111,10 +122,18 @@ CGT_SHORT = 0.075
 CGT_LONG = 0.05
 
 
+def slippage_rate(order_value: float, day_turnover: float, daily_vol: float, cfg: Config) -> float:
+    """Half the bid-ask spread plus square-root market impact (the standard
+    institutional cost model). Bigger orders in thinner, jumpier stocks cost more."""
+    part = order_value / max(day_turnover, 1.0)
+    vol = daily_vol if daily_vol and not math.isnan(daily_vol) else 0.02
+    return min(cfg.max_slippage, cfg.half_spread + cfg.impact_coef * vol * math.sqrt(part))
+
+
 # ----------------------------------------------------------------- market data
 class Market:
-    def __init__(self):
-        M = research.load()
+    def __init__(self, end: str | None = None):
+        M = research.load(end)
         self.M = M
         self.dates: list[str] = M["dates"]
         self.didx = {d: i for i, d in enumerate(self.dates)}
@@ -124,11 +143,13 @@ class Market:
         self.nepse = M["nepse"]
         self.symbols = list(self.close.columns)
         self.sector_of = M["sector"]
-        self.uni_mask = research.universe_mask(M)
+        self.uni_mask = research.universe_mask(M)          # may BUY
+        self.hold_mask = research.hold_mask(M)             # may KEEP
+        self.adj_event = research.adjustment_events(M)
         F = research.factors(M)
         self._signals = {k: F[v[2]] for k, v in SIGNALS.items()}
-        self.vol60 = self.ret.rolling(60).std()
-        # benchmark: the "average liquid stock" (equal-weight universe, rebalanced daily)
+        self.vol20 = self.ret.rolling(20).std()
+        # benchmark: the "average liquid stock" (equal-weight universe, rebalanced daily, no costs)
         ew = self.ret_raw.where(self.uni_mask.shift(1, fill_value=False)).mean(axis=1).fillna(0)
         self.ew_index = (1 + ew).cumprod()
         self._z = {}
@@ -140,17 +161,22 @@ class Market:
         row = self.uni_mask.iloc[i]
         return list(row[row].index)
 
-    def zscores(self, i: int, uni: list[str] | None = None) -> pd.DataFrame:
-        if i not in self._z:
-            uni = uni if uni is not None else self.universe(i)
+    def zscores(self, i: int, extra: tuple = ()) -> pd.DataFrame:
+        """Signals standardised across the buy universe. `extra` symbols (current holdings
+        that left the buy universe) are scored on the same scale."""
+        key = (i, tuple(sorted(extra)))
+        if key not in self._z:
+            uni = self.universe(i)
+            syms = uni + [s for s in extra if s not in uni]
             out = {}
             for k, m in self._signals.items():
-                x = m.iloc[i].reindex(uni).astype(float)
-                x = x.fillna(x.median())
-                sd = x.std()
-                out[k] = ((x - x.mean()) / sd).clip(-3, 3) if sd and sd > 0 else x * 0
-            self._z[i] = pd.DataFrame(out).fillna(0)
-        return self._z[i]
+                row = m.iloc[i]
+                x = row.reindex(uni).astype(float)
+                med, mean, sd = x.median(), x.mean(), x.std()
+                v = row.reindex(syms).astype(float).fillna(med)
+                out[k] = ((v - mean) / sd).clip(-3, 3) if sd and sd > 0 else v * 0
+            self._z[key] = pd.DataFrame(out).fillna(0)
+        return self._z[key]
 
     def forward(self, h: int) -> pd.DataFrame:
         """Return over the h days after the entry day (only ever read for *past* dates)."""
@@ -163,9 +189,9 @@ class Market:
 class SignalLearner:
     """Walk-forward information-coefficient (IC) tracker.
 
-    IC = rank correlation between a signal today and the stock returns of the
-    following 20 days. It is only recorded once those 20 days are in the past.
-    Final weight = 50% research prior + 50% what the last ~year of data says.
+    IC = rank correlation between a signal today and stock returns over the next
+    `ic_horizon` days. It is only recorded once those days are in the past.
+    Final weight = prior_mix x research prior + (1 - prior_mix) x recent evidence.
     """
 
     def __init__(self, mkt: Market, cfg: Config):
@@ -178,7 +204,7 @@ class SignalLearner:
         uni = self.m.universe(j)
         res = None
         if len(uni) >= 30:
-            z = self.m.zscores(j, uni)
+            z = self.m.zscores(j)
             f = self.m.forward(self.cfg.ic_horizon).iloc[j].reindex(uni)
             if f.notna().sum() >= 30:
                 fr = f.rank()
@@ -186,21 +212,30 @@ class SignalLearner:
         self.ic[j] = res
         return res
 
-    def weights(self, i: int) -> tuple[dict, dict]:
+    def health(self, i: int) -> dict | None:
+        """Recent average IC of each signal (walk-forward). Positive x prior sign = still working."""
         h, L = self.cfg.ic_horizon + 1, self.cfg.ic_lookback
-        hist = [self._ic_at(j) for j in range(max(120, i - h - L), i - h + 1, 2)]
+        hist = [self._ic_at(j) for j in range(max(120, i - h - L), i - h + 1, 3)]
         hist = [x for x in hist if x]
-        prior = self.cfg.priors
         if len(hist) < 30:
-            return dict(prior), {k: 0.0 for k in SIG_KEYS}
+            return None
         df = pd.DataFrame(hist).fillna(0)
-        w_ew = 0.5 ** (np.arange(len(df))[::-1] * 2 / self.cfg.ic_halflife)
+        w_ew = 0.5 ** (np.arange(len(df))[::-1] * 3 / self.cfg.ic_halflife)
         mean = df.mul(w_ew, axis=0).sum() / w_ew.sum()
-        learned = mean / (mean.abs().sum() + 1e-9)
+        return {k: float(mean[k]) for k in SIG_KEYS}
+
+    def weights(self, i: int) -> tuple[dict, dict]:
+        prior = self.cfg.priors
+        ic = self.health(i)
+        if ic is None:
+            return dict(prior), {k: 0.0 for k in SIG_KEYS}
         mix = self.cfg.prior_mix
-        w = {k: mix * prior[k] + (1 - mix) * float(learned[k]) for k in SIG_KEYS}
-        tot = sum(abs(v) for v in w.values()) or 1
-        return {k: v / tot for k, v in w.items()}, {k: float(mean[k]) for k in SIG_KEYS}
+        if mix >= 1:
+            return dict(prior), ic
+        tot = sum(abs(v) for v in ic.values()) + 1e-9
+        w = {k: mix * prior[k] + (1 - mix) * ic[k] / tot for k in SIG_KEYS}
+        norm = sum(abs(v) for v in w.values()) or 1
+        return {k: v / norm for k, v in w.items()}, ic
 
 
 # ------------------------------------------------------------------ the trader
@@ -211,27 +246,30 @@ class Engine:
         self.cfg = cfg or Config()
         self.learner = SignalLearner(mkt, self.cfg)
         self.log_days = log_days
-        self._alpha_cache = {}
         self.s = state or {
             "cash": self.cfg.start_capital, "start_capital": self.cfg.start_capital,
             "inception": None, "last_date": None, "positions": {}, "pending": [],
             "trades": [], "equity": [], "fees": {"commission": 0.0, "sebon": 0.0,
                                                   "dp": 0.0, "cgt": 0.0, "slippage": 0.0},
-            "days": [], "brain": None, "model": "v2",
+            "days": [], "brain": None, "model": MODEL_VERSION,
         }
 
     # -------------------------------------------------------------- scoring
-    def raw_alpha(self, i):
-        if i not in self._alpha_cache:
-            uni = self.m.universe(i)
-            if len(uni) < 30:
-                self._alpha_cache[i] = None
-            else:
-                w, ic = self.learner.weights(i)
-                z = self.m.zscores(i, uni)
-                a = (z * pd.Series(w)).sum(axis=1)
-                self._alpha_cache[i] = ((a - a.mean()) / (a.std() or 1), z, w, ic)
-        return self._alpha_cache[i]
+    def score(self, i):
+        """-> (alpha for universe + holdings, z-scores, weights, recent ICs, rank% among the universe)"""
+        uni = self.m.universe(i)
+        if len(uni) < 30:
+            return None
+        w, ic = self.learner.weights(i)
+        held = tuple(k for k in self.s["positions"] if k not in uni and k in self.m.close.columns)
+        z = self.m.zscores(i, held)
+        raw = (z * pd.Series(w)).sum(axis=1)
+        mu, sd = raw.reindex(uni).mean(), raw.reindex(uni).std() or 1
+        alpha = (raw - mu) / sd
+        au = np.sort(alpha.reindex(uni).values)
+        # share of the universe scoring strictly higher (0% = best)
+        rank_pct = pd.Series(1 - np.searchsorted(au, alpha.values, side="right") / len(au), index=alpha.index)
+        return alpha, z, w, ic, rank_pct, uni
 
     # -------------------------------------------------------------- helpers
     def _log(self, day, kind, msg, **extra):
@@ -301,25 +339,36 @@ class Engine:
     def _execute_pending(self, day, i):
         m, cfg, s = self.m, self.cfg, self.s
         orders, s["pending"] = s["pending"], []
-        if orders:
-            self._log(day, "exec", f"Market opened: sending {len(orders)} order(s) queued at the last close to the broker.")
+        live = [o for o in orders if not o.get("quiet")]
+        if live:
+            self._log(day, "exec", f"Market opened: sending {len(live)} order(s) queued at the last close to the broker.")
         for o in sorted(orders, key=lambda o: o["side"] != "SELL"):  # sells first, frees cash
             sym = o["sym"]
             close, hi, lo = self._px(m.close, sym, i), self._px(m.high, sym, i), self._px(m.low, sym, i)
             vwap, vol = self._px(m.vwap, sym, i), self._px(m.vol, sym, i)
             if close is None or not vol:
-                self._log(day, "warn", f"{o['side']} {sym}: stock did not trade today. Order expired.", sym=sym)
+                if not o.get("quiet"):
+                    self._log(day, "warn", f"{o['side']} {sym}: stock did not trade today. "
+                              + ("Order expired." if o["side"] == "BUY" else "Will keep trying."), sym=sym)
                 self._fail(o, day, "not traded")
                 continue
             r = self.m.ret.at[m.dates[i], sym]
+            turn = self._px(m.turn, sym, i) or vol * vwap
+            dvol = self._px(m.vol20, sym, i)
             if o["side"] == "BUY":
+                if len(s["positions"]) >= cfg.max_positions:
+                    self._log(day, "warn", f"BUY {sym}: cancelled, no free slot (an earlier sell has not "
+                              "fully completed yet).", sym=sym)
+                    self._fail(o, day, "no free slot")
+                    continue
                 if r >= 0.095 and close >= hi * 0.999:
                     self._log(day, "warn", f"BUY {sym}: price locked at upper circuit (+10%), no sellers. "
                               "Order not filled.", sym=sym)
                     self._fail(o, day, "upper circuit")
                     continue
-                price = min(hi, vwap * (1 + cfg.slippage))
                 qty = min(o["qty"], int(vol * cfg.max_volume_share))
+                slip = slippage_rate(qty * vwap, turn, dvol, cfg)
+                price = min(hi, vwap * (1 + slip))
                 while qty >= 10:
                     amt = qty * price
                     if amt + commission(amt) + amt * SEBON_FEE <= s["cash"]:
@@ -339,11 +388,13 @@ class Engine:
                     "qty": qty, "cost": amt + com + seb, "entry_price": price,
                     "entry_date": m.dates[i], "peak": price, "last": close,
                     "sector": m.sector_of.get(sym), "reason": o["reason"], "signals": o["signals"],
-                    "alpha": o["alpha"],
+                    "alpha": o["alpha"], "no_trade": 0,
+                    "review_on": self._review_index(i, len(s["positions"])),
                 }
-                self._trade(day, o, i, qty, price, amt, com, seb, 0, 0, None)
+                self._trade(day, o, i, qty, price, amt, com, seb, 0, 0, None, slip=round(slip * 100, 3))
                 self._log(day, "buy", f"BOUGHT {qty} × {sym} @ Rs {price:,.2f} = Rs {amt:,.0f} "
-                          f"(+ Rs {com + seb:,.0f} broker & SEBON fees). Shares arrive in demat in T+2.", sym=sym)
+                          f"(+ Rs {com + seb:,.0f} broker & SEBON fees, {slip * 100:.2f}% slippage). "
+                          "Shares arrive in demat in T+2.", sym=sym)
             else:
                 p = s["positions"].get(sym)
                 if not p:
@@ -353,8 +404,10 @@ class Engine:
                               "Will retry next session.", sym=sym)
                     self._fail(o, day, "lower circuit")
                     continue
-                price = max(lo, vwap * (1 - cfg.slippage))
-                qty = min(p["qty"], max(10, int(vol * cfg.max_volume_share)))
+                want = min(p["qty"], o["qty"]) if o.get("trim") else p["qty"]
+                qty = min(want, max(10, int(vol * cfg.max_volume_share)))
+                slip = slippage_rate(qty * vwap, turn, dvol, cfg)
+                price = max(lo, vwap * (1 - slip))
                 amt = qty * price
                 com, seb = commission(amt), amt * SEBON_FEE
                 basis = p["cost"] * qty / p["qty"]
@@ -367,7 +420,7 @@ class Engine:
                 f["slippage"] += qty * (vwap - price)
                 net = gain - cgt
                 self._trade(day, o, i, qty, price, amt, com, seb, DP_CHARGE, cgt, net,
-                            entry=p["entry_price"], entry_date=p["entry_date"])
+                            entry=p["entry_price"], entry_date=p["entry_date"], slip=round(slip * 100, 3))
                 emo = "profit" if net >= 0 else "loss"
                 self._log(day, "sell", f"SOLD {qty} × {sym} @ Rs {price:,.2f} = Rs {amt:,.0f}. "
                           f"Net {emo} after all fees & tax: Rs {net:,.0f} ({net / basis * 100:+.1f}%).", sym=sym)
@@ -376,13 +429,27 @@ class Engine:
                 else:
                     p["cost"] -= basis
                     p["qty"] -= qty
-                    s["pending"].append(dict(o, qty=p["qty"]))  # sell the rest next session
+                    if not o.get("trim"):
+                        s["pending"].append(dict(o, qty=p["qty"]))  # sell the rest next session
+                    elif want - qty >= 10:
+                        s["pending"].append(dict(o, qty=want - qty))
+
+    def _review_index(self, i, n_held):
+        """Trading-day index of a new holding's first review. The very first batch is spread
+        over `stagger` waves so the whole portfolio is never re-decided on one (lucky or
+        unlucky) day; after that every holding simply follows its own clock."""
+        cfg = self.cfg
+        first_batch = self.tdays_between(self.s["inception"], self.m.dates[i]) <= 5
+        wave = (n_held % cfg.stagger) + 1 if first_batch and cfg.stagger > 1 else cfg.stagger
+        return i + round(cfg.review_every * wave / max(cfg.stagger, 1))
 
     def _fail(self, o, day, why):
-        self.s["trades"].append({"date": day["date"], "side": o["side"], "sym": o["sym"],
-                                 "status": "REJECTED", "why": why, "reason": o["reason"]})
+        if not o.get("quiet"):
+            self.s["trades"].append({"date": day["date"], "side": o["side"], "sym": o["sym"],
+                                     "status": "REJECTED", "why": why, "reason": o["reason"]})
         if o["side"] == "SELL" and o["sym"] in self.s["positions"]:
-            self.s["pending"].append(o)  # keep trying to get out
+            # keep trying to get out, but don't repeat the same message every day
+            self.s["pending"].append(dict(o, quiet=(why == "not traded")))
 
     def _trade(self, day, o, i, qty, price, amt, com, seb, dp, cgt, net, **kw):
         self.s["trades"].append({
@@ -392,14 +459,36 @@ class Engine:
             "pnl": None if net is None else round(net, 2), "reason": o["reason"], **kw})
 
     def _mark(self, day, i):
-        m = self.m
-        for sym, p in self.s["positions"].items():
+        m, s = self.m, self.s
+        for sym in list(s["positions"]):
+            p = s["positions"][sym]
             c = self._px(m.close, sym, i)
             if c is not None:
                 p["last"] = c
                 p["peak"] = max(p["peak"], c)
+                p["no_trade"] = 0
+            else:
+                p["no_trade"] = p.get("no_trade", 0) + 1
             p["days_held"] = self.tdays_between(p["entry_date"], m.dates[i])
             p["settled"] = p["days_held"] >= 2
+            if p["no_trade"] >= self.cfg.halt_days:
+                # Suspended for a merger/acquisition: in reality the shares convert into the
+                # acquirer's shares. Without the swap ratio the neutral assumption is "worth
+                # what it last traded at"; release that value so the slot can be reused.
+                val = p["qty"] * p["last"]
+                net = val - p["cost"]
+                s["cash"] += val
+                s["trades"].append({"date": day["date"], "side": "SELL", "sym": sym, "status": "FILLED",
+                                    "qty": p["qty"], "price": p["last"], "amount": round(val, 2), "fees": 0,
+                                    "cgt": 0, "pnl": round(net, 2), "entry": p["entry_price"],
+                                    "entry_date": p["entry_date"],
+                                    "reason": f"suspended {self.cfg.halt_days} trading days (likely merger): "
+                                              "settled at last traded price"})
+                s["pending"] = [o for o in s["pending"] if o["sym"] != sym]
+                self._log(day, "warn", f"{sym} has not traded for {self.cfg.halt_days} trading days (suspended, "
+                          f"probably for a merger). Settled at its last price, Rs {p['last']:,.1f}; in real life "
+                          "you would receive the merged company's shares.", sym=sym)
+                del s["positions"][sym]
 
     # -------------------------------------------------------------- decision
     def regime(self, i):
@@ -416,12 +505,14 @@ class Engine:
 
     def vetoes(self, i, uni):
         """Hard 'never buy' rules from the research."""
-        m, d = self.m, self.m.dates[i]
+        m, cfg, d = self.m, self.cfg, self.m.dates[i]
         r = m.ret_raw
         upper_today = r.loc[d].reindex(uni) >= 0.095
         lower_5d = (r.iloc[i - 4:i + 1][uni] <= -0.095).any()
         press = m._signals["pressure"].iloc[i].reindex(uni)
-        heavy = press.rank(ascending=False, pct=True) <= self.cfg.pressure_veto
+        heavy = press.rank(ascending=False, pct=True) <= cfg.pressure_veto
+        k = cfg.postadj_veto_days
+        adj = m.adj_event.iloc[max(0, i - k + 1):i + 1][uni].any() if k else pd.Series(False, index=uni)
         out = {}
         for sym in uni:
             why = []
@@ -429,6 +520,8 @@ class Engine:
                 why.append("hit the upper circuit today (chasing doesn't pay)")
             if lower_5d.get(sym, False):
                 why.append("hit the lower circuit in the last 5 days (weakness tends to continue)")
+            if adj.get(sym, False):
+                why.append(f"bonus/right price adjustment in the last {k} days (stocks tend to sag after)")
             if heavy.get(sym, False):
                 why.append("heavy closing pressure (late-day push)")
             if why:
@@ -437,54 +530,84 @@ class Engine:
 
     def _decide(self, day, i):
         m, cfg, s = self.m, self.cfg, self.s
-        uni = m.universe(i)
-        if len(uni) < 30:
+        sc = self.score(i)
+        if sc is None:
             self._log(day, "think", "Not enough price history yet to trade safely. Waiting.")
             return
-        alpha, z, weights, ic = self.raw_alpha(i)
-        rank_pct = alpha.rank(ascending=False, pct=True)
+        alpha, z, weights, ic, rank_pct, uni = sc
         regime, gross = self.regime(i)
         veto = self.vetoes(i, uni)
+        hold_ok = m.hold_mask.iloc[i]
         self._log(day, "think", f"Scanned {len(uni)} liquid stocks (skipped funds, bonds, debentures and the "
                   f"least-traded 40%). Computed {len(SIG_KEYS)} signals for each.")
         top_sig = sorted(weights.items(), key=lambda kv: -abs(kv[1]))[:3]
-        self._log(day, "learn", f"Signal trust (50% from 8 years of NEPSE research, 50% from the last year): "
-                  "strongest → " + ", ".join(f"{SIGNALS[k][0]} ({v * 100:+.0f}%)" for k, v in top_sig) + ".")
-        nv = {k: sum(1 for w in veto.values() if any(k in x for x in w)) for k in ("upper", "lower", "pressure")}
+        src = "from 8 years of NEPSE research" if cfg.prior_mix >= 1 else \
+            f"{cfg.prior_mix * 100:.0f}% from 8 years of NEPSE research, {(1 - cfg.prior_mix) * 100:.0f}% from the last year"
+        self._log(day, "learn", f"Signal trust ({src}): strongest → "
+                  + ", ".join(f"{SIGNALS[k][0]} ({v * 100:+.0f}%)" for k, v in top_sig) + ".")
+        nv = {k: sum(1 for w in veto.values() if any(k in x for x in w))
+              for k in ("upper", "lower", "adjustment", "pressure")}
         self._log(day, "risk", f"Never-buy filters: {nv['upper']} at upper circuit today, {nv['lower']} hit the "
-                  f"lower circuit recently, {nv['pressure']} with heavy closing pressure.")
+                  f"lower circuit recently, {nv['adjustment']} just had a bonus/right adjustment, "
+                  f"{nv['pressure']} with heavy closing pressure.")
         self._log(day, "risk", f"Market regime: {regime}. Maximum money in stocks: {gross * 100:.0f}%.")
 
-        since = self.tdays_between(s["inception"], m.dates[i])
-        review = since % cfg.review_every == 0
-        nxt = 0 if review else cfg.review_every - since % cfg.review_every
-        if review:
-            self._log(day, "think", f"📅 Portfolio review day (every {cfg.review_every} trading days ≈ 2 months). "
-                      "Re-ranking everything.")
-        else:
-            self._log(day, "think", f"Not a review day (next review in {nxt} trading days). Only checking "
+        legacy = [k for k, p in s["positions"].items() if "review_on" not in p]
+        if legacy:
+            # Holdings bought by an older model version: review them in waves, worst-ranked
+            # first, instead of dumping everything at once (cost-aware transition).
+            legacy.sort(key=lambda k: -(float(rank_pct[k]) if k in rank_pct.index else 1.0))
+            for n, k in enumerate(legacy):
+                wave = n % max(cfg.stagger, 1) + 1
+                s["positions"][k]["review_on"] = i + round(cfg.review_every * wave / max(cfg.stagger, 1))
+            self._log(day, "think", f"Model upgraded to {MODEL_VERSION}. The {len(legacy)} existing holdings stay; "
+                      f"they will be re-checked in {max(cfg.stagger, 1)} waves over the next {cfg.review_every} "
+                      "trading days (weakest-ranked first) to avoid paying fees to switch all at once.")
+        due = [k for k, p in s["positions"].items() if i >= p["review_on"]]
+        upcoming = [p["review_on"] - i for p in s["positions"].values() if p["review_on"] > i]
+        nxt = min(upcoming) if upcoming else 0
+        if due:
+            self._log(day, "think", f"📅 Review day for {len(due)} holding(s): {', '.join(due)}. Each holding is "
+                      f"re-checked every {cfg.review_every} trading days (≈3 months) after it was bought.")
+        elif s["positions"]:
+            self._log(day, "think", f"No holding is due for review (next one in {nxt} trading days). Only checking "
                       "safety exits and filling empty slots. Low turnover = low fees.")
 
         eq = self.equity()
-        sells = set()
+        sells, stuck = set(), set()
         r_today = m.ret_raw.iloc[i]
         for sym, p in s["positions"].items():
-            if any(o["sym"] == sym and o["side"] == "SELL" for o in s["pending"]):
-                sells.add(sym)
+            if any(o["sym"] == sym and o["side"] == "SELL" and not o.get("trim") for o in s["pending"]):
+                stuck.add(sym)     # an earlier sell has not filled yet: its slot is NOT free
                 continue
             why = None
             ret = p["last"] / p["entry_price"] - 1
-            if p["last"] <= p["entry_price"] * (1 - cfg.emergency_stop):
-                why = f"emergency stop ({ret * 100:.1f}% from entry)"
-            elif p["last"] <= p["peak"] * (1 - cfg.trailing_stop):
+            rk = float(rank_pct[sym]) if sym in rank_pct.index else None
+            if cfg.stop_loss and p["last"] <= p["entry_price"] * (1 - cfg.stop_loss):
+                why = f"stop-loss ({ret * 100:.1f}% from entry)"
+            elif cfg.trailing_stop and p["last"] <= p["peak"] * (1 - cfg.trailing_stop):
                 why = f"trailing stop: fell {(1 - p['last'] / p['peak']) * 100:.1f}% from its peak"
-            elif r_today.get(sym, 0) <= -0.095:
+            elif cfg.lower_circuit_exit and r_today.get(sym, 0) <= -0.095:
                 why = "hit the lower circuit today; on NEPSE such stocks tend to keep falling"
-            elif review and sym not in rank_pct:
-                why = "dropped out of the tradable universe (low liquidity)"
-            elif review and rank_pct[sym] > cfg.keep_top_pct:
-                why = (f"signal faded at review (now top {rank_pct[sym] * 100:.0f}%, "
+            elif sym in due and (rk is None or not bool(hold_ok.get(sym, False))):
+                why = "became too thinly traded to hold safely"
+            elif sym in due and rk > cfg.keep_top_pct:
+                why = (f"signal faded at its review (now top {max(rk, 0.01) * 100:.0f}%, "
                        f"needs top {cfg.keep_top_pct * 100:.0f}%)")
+            elif sym in due:
+                p["review_on"] = i + cfg.review_every
+                target_w = min(cfg.max_weight, gross / cfg.max_positions)
+                wgt = p["qty"] * p["last"] / eq
+                if cfg.trim_above and wgt > cfg.trim_above and p["settled"]:
+                    cut = int(p["qty"] * (1 - target_w / wgt))
+                    if cut >= 10:
+                        s["pending"].append({"side": "SELL", "sym": sym, "qty": cut, "trim": True,
+                                             "reason": f"trim: grew to {wgt * 100:.0f}% of the portfolio, "
+                                                       f"back to {target_w * 100:.0f}%",
+                                             "alpha": float(alpha.get(sym, 0)), "signals": {}})
+                        self._log(day, "plan", f"Plan TRIM {sym}: it grew to {wgt * 100:.0f}% of the portfolio. "
+                                  f"Selling {cut} shares to bring it back to {target_w * 100:.0f}% "
+                                  "(don't let one stock decide everything).", sym=sym)
             if why:
                 if not p["settled"]:
                     self._log(day, "lock", f"{sym}: wants to sell ({why}) but shares are not settled yet "
@@ -495,8 +618,8 @@ class Engine:
                                      "alpha": float(alpha.get(sym, 0)), "signals": {}})
                 self._log(day, "plan", f"Plan SELL {sym}: {why}.", sym=sym)
             else:
-                rk = f"ranked top {rank_pct[sym] * 100:.0f}%" if sym in rank_pct else "outside today's universe"
-                self._log(day, "hold", f"Keep {sym}: {ret * 100:+.1f}% so far, {rk}.", sym=sym)
+                where = f"ranked top {max(rk, 0.01) * 100:.0f}%" if rk is not None else "not scored today"
+                self._log(day, "hold", f"Keep {sym}: {ret * 100:+.1f}% so far, {where}.", sym=sym)
 
         # ---- buys (review days, or any day there are empty slots)
         held = [k for k in s["positions"] if k not in sells]
@@ -508,26 +631,26 @@ class Engine:
         for k in held:
             sec = s["positions"][k]["sector"]
             sect_w[sec] = sect_w.get(sec, 0) + pos_val(k) / eq
-        planned, vetoed_top = 0, []
+        planned = 0
         if slots > 0 and budget >= cfg.min_order:
-            target = gross / cfg.max_positions
-            vol = m.vol60.iloc[i].reindex(uni)
-            med_vol = float(vol.median())
-            for sym in alpha.sort_values(ascending=False).index:
+            target = min(cfg.max_weight, gross / cfg.max_positions)
+            order = alpha.reindex(uni).sort_values(ascending=False)
+            pos_in_uni = {sym: n + 1 for n, sym in enumerate(order.index)}
+            for sym in order.index:
                 if slots <= 0 or budget < cfg.min_order or rank_pct[sym] > cfg.buy_top_pct:
                     break
                 if sym in s["positions"]:
                     continue
                 if sym in veto:
-                    vetoed_top.append(sym)
-                    self._log(day, "risk", f"Skip {sym} (ranked top {rank_pct[sym] * 100:.0f}%): {veto[sym][0]}.", sym=sym)
+                    self._log(day, "risk", f"Skip {sym} (ranked #{pos_in_uni[sym]}): {veto[sym][0]}.", sym=sym)
                     continue
                 sec = m.sector_of.get(sym)
                 room = cfg.max_sector_weight - sect_w.get(sec, 0)
                 if room < 0.03:
-                    self._log(day, "risk", f"Skip {sym}: {sec} sector already at its {cfg.max_sector_weight * 100:.0f}% limit.", sym=sym)
+                    self._log(day, "risk", f"Skip {sym}: {sec} sector already at its "
+                              f"{cfg.max_sector_weight * 100:.0f}% limit.", sym=sym)
                     continue
-                w = min(cfg.max_weight, room, target * min(1.3, max(0.75, med_vol / max(float(vol.get(sym, med_vol)), 1e-4))))
+                w = min(target, room)
                 amt = min(w * eq, budget)
                 px = float(m.close.at[m.dates[i], sym])
                 qty = int(amt / (px * 1.02))
@@ -535,25 +658,26 @@ class Engine:
                     continue
                 contrib = (z.loc[sym] * pd.Series(weights)).sort_values(ascending=False)
                 top = [SIGNALS[k][0] + ("" if weights[k] > 0 else " (low)") for k, v in contrib.items() if v > 0][:3]
-                reason = f"Ranked #{int(alpha.rank(ascending=False)[sym])} of {len(uni)}; driven by " + ", ".join(top)
+                reason = f"Ranked #{pos_in_uni[sym]} of {len(uni)}; driven by " + ", ".join(top)
                 s["pending"].append({"side": "BUY", "sym": sym, "qty": qty, "reason": reason,
                                      "alpha": round(float(alpha[sym]), 3),
                                      "signals": {k: round(float(z.at[sym, k]), 2) for k in SIG_KEYS}})
-                self._log(day, "plan", f"Plan BUY ~{qty} × {sym} (≈Rs {qty * px:,.0f}, {qty * px / eq * 100:.0f}% of portfolio). "
-                          f"Reason: {reason}.", sym=sym)
+                self._log(day, "plan", f"Plan BUY ~{qty} × {sym} (≈Rs {qty * px:,.0f}, "
+                          f"{qty * px / eq * 100:.0f}% of portfolio). Reason: {reason}.", sym=sym)
                 sect_w[sec] = sect_w.get(sec, 0) + w
                 budget -= qty * px * 1.01
                 slots -= 1
                 planned += 1
-            if slots > 0 and planned == 0 and not review:
+            if slots > 0 and planned == 0 and not due:
                 self._log(day, "think", "Empty slots, but no stock passed every filter today. Waiting.")
-        if planned == 0 and not sells:
+        if planned == 0 and not sells and not stuck:
             self._log(day, "think", "No trades today. Doing nothing is often the best decision: every round-trip "
-                      "costs ~0.85% plus 7.5% tax on profit.")
-        if s["pending"]:
-            self._log(day, "exec", f"{len(s['pending'])} order(s) queued for the next trading session.")
+                      "costs ~0.9% plus 7.5% tax on profit.")
+        live = [o for o in s["pending"] if not o.get("quiet")]
+        if live:
+            self._log(day, "exec", f"{len(live)} order(s) queued for the next trading session.")
 
-        top_n = alpha.sort_values(ascending=False).head(15).index
+        top_n = alpha.reindex(uni).sort_values(ascending=False).head(15).index
         s["brain"] = {
             "date": m.dates[i], "universe": len(uni), "regime": regime, "gross": gross, "next_review": nxt,
             "weights": {k: round(v, 4) for k, v in weights.items()},
@@ -564,7 +688,9 @@ class Engine:
                      "close": float(m.close.at[m.dates[i], k]), "veto": veto.get(k, [None])[0],
                      "z": {sk: round(float(z.at[k, sk]), 2) for sk in SIG_KEYS}} for k in top_n],
         }
-        s.setdefault("weight_history", []).append({"date": m.dates[i], **{k: round(v, 4) for k, v in weights.items()}})
+        s["brain"]["health"] = {k: ("ok" if ic[k] * cfg.priors[k] > 0 else "weak") for k in SIG_KEYS} if any(ic.values()) else {}
+        s.setdefault("health_history", []).append({"date": m.dates[i], **{k: round(v, 4) for k, v in ic.items()}})
+        s["model"] = MODEL_VERSION
 
 
 # ------------------------------------------------------------------ metrics
@@ -574,7 +700,9 @@ def _seg(eq: pd.DataFrame, start_capital: float):
     nep = eq["nepse"].astype(float).ffill()
     ew = eq["ew"].astype(float) if "ew" in eq else None
     n = len(e)
-    yrs = n / 240
+    yrs = n / 235
+    rn = nep.pct_change().reindex(r.index).fillna(0)
+    beta = float(np.cov(r, rn)[0, 1] / rn.var()) if len(r) > 60 and rn.var() > 0 else None
     return {
         "from": eq["date"].iloc[0], "to": eq["date"].iloc[-1],
         "return_pct": round((e.iloc[-1] / e.iloc[0] - 1) * 100, 2),
@@ -584,7 +712,10 @@ def _seg(eq: pd.DataFrame, start_capital: float):
         "nepse_cagr_pct": round(((nep.iloc[-1] / nep.iloc[0]) ** (1 / yrs) - 1) * 100, 2) if yrs >= 0.9 else None,
         "max_drawdown_pct": round(float((e / e.cummax() - 1).min()) * 100, 2),
         "nepse_drawdown_pct": round(float((nep / nep.cummax() - 1).min()) * 100, 2),
-        "sharpe": round(float(r.mean() / r.std() * math.sqrt(240)), 2) if len(r) > 10 and r.std() > 0 else None,
+        "sharpe": round(float(r.mean() / r.std() * math.sqrt(235)), 2) if len(r) > 10 and r.std() > 0 else None,
+        "nepse_sharpe": round(float(rn.mean() / rn.std() * math.sqrt(235)), 2) if len(r) > 10 and rn.std() > 0 else None,
+        "vol_pct": round(float(r.std() * math.sqrt(235)) * 100, 1) if len(r) > 10 else None,
+        "beta": None if beta is None else round(beta, 2),
     }
 
 
@@ -603,9 +734,11 @@ def metrics(state: dict, split: str | None = None) -> dict:
         "best_trade": max(closed, key=lambda t: t["pnl"]) if closed else None,
         "worst_trade": min(closed, key=lambda t: t["pnl"]) if closed else None,
         "realized_pnl": round(sum(t["pnl"] for t in closed), 2), "trading_days": len(eq),
+        "costs_total": round(sum(state["fees"].values()), 2),
     })
     if split and eq["date"].iloc[0] < split < eq["date"].iloc[-1]:
-        a, b = eq[eq["date"] <= split], eq[eq["date"] >= eq[eq["date"] <= split]["date"].iloc[-1]]
+        a = eq[eq["date"] <= split]
+        b = eq[eq["date"] >= a["date"].iloc[-1]]
         out["design"], out["holdout"] = _seg(a, start), _seg(b, start)
     years = []
     for y, g in eq.groupby(eq["date"].str[:4]):

@@ -127,7 +127,7 @@ a{color:var(--amber)}
 .kpi.big::after{background:linear-gradient(90deg,var(--f1),var(--f2),var(--f3),var(--f4),var(--f5))}
 .kpi label{font:600 10.5px "IBM Plex Mono";color:var(--muted);text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px}
 .kpi .val{font:600 24px/1.2 Fraunces,Georgia,serif;margin-top:6px;font-variant-numeric:lining-nums tabular-nums}
-.kpi.big .val{font-size:38px;color:var(--amber)}.kpi .val.sm{font-size:21px}
+.kpi.big .val{font-size:clamp(26px,2.7vw,38px);color:var(--amber);white-space:nowrap}.kpi .val.sm{font-size:21px}
 .kpi .sub{font-size:12.5px;color:var(--ink2)}
 .bar{height:5px;border-radius:1px;background:var(--line);margin-top:12px;overflow:hidden}.bar span{display:block;height:100%;background:var(--c1);width:0;transition:width 1s}
 .tip{font-style:normal;width:15px;height:15px;border-radius:50%;border:1px solid var(--line);display:inline-grid;place-items:center;font:600 9.5px "IBM Plex Sans";cursor:help;color:var(--muted);position:relative;text-transform:none;letter-spacing:0}
@@ -284,3 +284,15 @@ td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;font-varia
   .plate .nm{display:none}
 }
 @media (max-width:420px){.brand div{display:none}}
+
+/* ---------- v3: health badges, robustness */
+.hb{display:inline-block;font:600 9.5px "IBM Plex Mono";letter-spacing:.06em;padding:1px 6px;border-radius:2px;margin-left:6px;vertical-align:1px}
+.hb.ok{background:var(--green-s);color:var(--green)}.hb.weak{background:var(--red-s);color:var(--red)}
+#modelTag{color:var(--amber);margin-left:6px}
+.years .chosen td{background:color-mix(in srgb,var(--amber) 9%,transparent)}
+.years .chosen td:first-child b::after{content:" ◄";color:var(--amber)}
+.verdict{border-left:3px solid var(--amber);font-size:14.5px;color:var(--ink2)}
+.verdict b{color:var(--ink)}.verdict ul{margin:8px 0 0;padding-left:20px}.verdict li{margin:5px 0}
+.verdict h3{margin-bottom:6px}
+.stack{display:grid;gap:14px}
+#robust table td,#robust table th{padding:7px 8px}

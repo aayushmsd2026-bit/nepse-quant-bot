@@ -1,0 +1,170 @@
+"""Safety tests for the simulator. Run with:  python -m pytest -q
+
+They check the things that would silently make results wrong: fee maths, the
+accounting identity, NEPSE trading rules, data integrity and, most importantly,
+that the bot can never see the future.
+"""
+import csv
+import math
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from bot import engine as E
+
+ROOT = Path(__file__).resolve().parent.parent
+SLICE = ("2023-01-01", "2024-03-31")
+
+
+@pytest.fixture(scope="module")
+def market():
+    return E.Market()
+
+
+@pytest.fixture(scope="module")
+def run(market):
+    eng = E.Engine(market, E.Config())
+    days = [d for d in market.dates if SLICE[0] <= d <= SLICE[1]]
+    snaps = []
+    for d in days:
+        eng.run_day(d)
+        snaps.append((d, len(eng.s["positions"]), eng.equity()))
+    return eng, days, snaps
+
+
+# ---------------------------------------------------------------- fee maths
+def test_commission_tiers():
+    assert E.commission(1_000) == 10.0                      # minimum Rs 10
+    assert E.commission(50_000) == pytest.approx(180.0)     # 0.36%
+    assert E.commission(100_000) == pytest.approx(330.0)    # 0.33%
+    assert E.commission(1_000_000) == pytest.approx(3100.0)  # 0.31%
+    assert E.commission(5_000_000) == pytest.approx(13500.0)  # 0.27%
+    assert E.commission(20_000_000) == pytest.approx(48000.0)  # 0.24%
+
+
+def test_slippage_model():
+    cfg = E.Config()
+    small = E.slippage_rate(10_000, 10_000_000, 0.02, cfg)
+    big = E.slippage_rate(400_000, 10_000_000, 0.02, cfg)
+    thin = E.slippage_rate(400_000, 1_000_000, 0.02, cfg)
+    assert cfg.half_spread < small < big < thin              # bigger / thinner costs more
+    assert E.slippage_rate(1e9, 1.0, 0.05, cfg) == cfg.max_slippage
+    assert E.slippage_rate(10_000, 10_000_000, float("nan"), cfg) > cfg.half_spread
+
+
+# ---------------------------------------------------------------- accounting
+def test_accounting_identity(run):
+    """equity = start capital + every realised profit/loss + unrealised gains.
+    If any fee, tax or share count leaked, this breaks."""
+    eng, _, _ = run
+    s = eng.s
+    realised = sum(t["pnl"] for t in s["trades"] if t.get("status") == "FILLED" and t["side"] == "SELL")
+    unrealised = sum(p["qty"] * p["last"] - p["cost"] for p in s["positions"].values())
+    assert eng.equity() == pytest.approx(s["start_capital"] + realised + unrealised, abs=5.0)
+    assert s["cash"] >= -1e-6
+    assert all(v >= 0 for v in s["fees"].values())
+
+
+def test_cgt_only_on_profit(run):
+    eng, _, _ = run
+    for t in eng.s["trades"]:
+        if t.get("status") == "FILLED" and t["side"] == "SELL":
+            assert t["cgt"] >= 0
+            if t["pnl"] < 0:
+                assert t["cgt"] == 0
+
+
+# ---------------------------------------------------------------- NEPSE rules
+def test_t_plus_2_settlement(run, market):
+    eng, _, _ = run
+    for t in eng.s["trades"]:
+        if t.get("status") == "FILLED" and t["side"] == "SELL":
+            held = market.didx[t["date"]] - market.didx[t["entry_date"]]
+            assert held >= 3, f"{t['sym']} sold {held} trading days after purchase"
+
+
+def test_fills_respect_circuits_and_volume(run, market):
+    eng, _, _ = run
+    cfg = eng.cfg
+    for t in eng.s["trades"]:
+        if t.get("status") != "FILLED" or "slip" not in t:
+            continue
+        d, sym = t["date"], t["sym"]
+        hi, lo, vol = market.high.at[d, sym], market.low.at[d, sym], market.vol.at[d, sym]
+        assert lo - 0.01 <= t["price"] <= hi + 0.01           # never outside the day's range
+        r, close = market.ret.at[d, sym], market.close.at[d, sym]
+        if t["side"] == "BUY":
+            assert not (r >= 0.095 and close >= hi * 0.999), "bought a stock locked at upper circuit"
+            assert t["qty"] <= math.floor(vol * cfg.max_volume_share) + 1e-9
+            assert t["qty"] >= 10
+        else:
+            assert not (r <= -0.095 and close <= lo * 1.001), "sold a stock locked at lower circuit"
+
+
+def test_position_limits(run):
+    eng, _, snaps = run
+    assert max(n for _, n, _ in snaps) <= eng.cfg.max_positions
+    assert all(e > 0 for _, _, e in snaps)
+
+
+def test_never_buys_vetoed_or_excluded(run, market):
+    eng, _, _ = run
+    bad = E.research.EXCLUDED
+    for t in eng.s["trades"]:
+        if t.get("status") == "FILLED" and t["side"] == "BUY":
+            assert market.sector_of[t["sym"]] not in bad
+
+
+# ---------------------------------------------------------------- no lookahead
+def test_no_lookahead(market):
+    """Decisions up to day D must be identical whether or not data after D exists."""
+    days = [d for d in market.dates if "2023-06-01" <= d <= "2023-12-31"]
+    full = E.Engine(market, E.Config())
+    for d in days:
+        full.run_day(d)
+    blind_market = E.Market(end=days[-1])                    # the future is deleted
+    blind = E.Engine(blind_market, E.Config())
+    for d in days:
+        blind.run_day(d)
+    assert blind_market.dates[-1] == days[-1]
+    assert [e["equity"] for e in full.s["equity"]] == [e["equity"] for e in blind.s["equity"]]
+    key = lambda s: [(t["date"], t["side"], t["sym"], t.get("qty"), t.get("price")) for t in s["trades"]]
+    assert key(full.s) == key(blind.s)
+    assert [(o["side"], o["sym"], o["qty"]) for o in full.s["pending"]] == \
+           [(o["side"], o["sym"], o["qty"]) for o in blind.s["pending"]]
+
+
+# ---------------------------------------------------------------- data integrity
+def test_price_files_are_clean():
+    seen, last_key, glitches = set(), None, 0
+    for f in sorted((ROOT / "data" / "prices").glob("*.csv")):
+        with f.open() as fh:
+            for r in csv.DictReader(fh):
+                key = (r["date"], r["symbol"])
+                assert key not in seen, f"duplicate row {key}"
+                seen.add(key)
+                assert r["date"][:4] == f.stem
+                assert last_key is None or key > last_key, f"{f.name} not sorted at {key}"
+                last_key = key
+                c, h, l = float(r["close"]), float(r["high"]), float(r["low"])
+                assert c > 0 and h > 0 and l > 0
+                # Known source glitch: when a price crosses 100 or 1,000 intraday the site
+                # compares numbers as text ("99" > "100"). Rare; repaired by the loader.
+                glitches += h < l
+    assert len(seen) > 400_000
+    assert glitches < 200
+
+
+def test_loader_repairs_price_ranges(market):
+    ok = market.traded
+    assert bool((market.high.where(ok) >= market.low.where(ok)).where(ok, True).all().all())
+    assert bool((market.high.where(ok) >= market.close.where(ok) - 1e-9).where(ok, True).all().all())
+    assert bool((market.low.where(ok) <= market.close.where(ok) + 1e-9).where(ok, True).all().all())
+
+
+def test_index_file_is_clean():
+    idx = pd.read_csv(ROOT / "data" / "nepse_index.csv")
+    assert idx["date"].is_monotonic_increasing and idx["date"].is_unique
+    assert (idx["close"] > 500).all() and (idx["close"] < 20_000).all()
+    assert idx["close"].pct_change().abs().max() < 0.12       # index cannot jump more than circuits allow
