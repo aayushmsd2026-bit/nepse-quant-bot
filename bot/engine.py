@@ -101,6 +101,21 @@ class Config:
     priors: dict = field(default_factory=lambda: {k: v[3] for k, v in SIGNALS.items()})
 
 
+# Account-size presets. Same model and signals; only the portfolio shape changes.
+# A Rs 1 lakh account cannot hold 16 stocks: each slice (~Rs 6,000) is below a sensible
+# minimum order, and fixed fees (Rs 10 commission floor, Rs 25 DP charge) would bite.
+# 10 stocks of ~Rs 10,000 tested best for that size (design period, 4 start dates).
+PORTFOLIOS = {
+    "500k": {"name": "Rs 5 lakh", "cfg": {}},
+    "100k": {"name": "Rs 1 lakh", "cfg": {"start_capital": 100_000.0, "max_positions": 10,
+                                          "max_weight": 0.105, "min_order": 7_000.0}},
+}
+
+
+def config_for(pid: str) -> "Config":
+    return Config(**PORTFOLIOS[pid]["cfg"])
+
+
 # ------------------------------------------------------------------ fees (SEBON)
 def commission(amount: float) -> float:
     if amount <= 50_000:

@@ -296,3 +296,11 @@ td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;font-varia
 .verdict h3{margin-bottom:6px}
 .stack{display:grid;gap:14px}
 #robust table td,#robust table th{padding:7px 8px}
+
+/* ---------- portfolio switch */
+.pfbar{display:flex;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap}
+.pflabel{font:600 10.5px "IBM Plex Mono";letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.seg.pf button{font:600 15px Fraunces,Georgia,serif;padding:8px 16px}
+.seg.pf button.on{color:var(--amber)}
+.pfnote{color:var(--ink2);font-size:13px}
+.pfbar + .banner{margin-top:12px}

@@ -34,12 +34,21 @@ function plates() {
   });
 }
 
-let RES = null, ROB = null;
+let RES = null, ROB = null, ALL = {}, pf = "500k";
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
   const get = f => fetch(`data/${f}?t=${Date.now()}`).then(r => r.json());
-  [META, DATA.live, DATA.backtest] = await Promise.all([get("meta.json"), get("live.json"), get("backtest.json")]);
+  META = await get("meta.json");
+  const pfs = META.portfolios || [{ id: "500k", name: "Rs 5 lakh", files: ["live.json", "backtest.json"] }];
+  await Promise.all(pfs.map(async p => {
+    const [live, backtest] = await Promise.all(p.files.map(get));
+    ALL[p.id] = { live, backtest, meta: p };
+  }));
+  try { const q = new URLSearchParams(location.search).get("pf") || localStorage.getItem("pf"); if (q && ALL[q]) pf = q; } catch (e) { }
+  if (!ALL[pf]) pf = pfs[0].id;
+  DATA = ALL[pf];
+  $("#pfSeg").innerHTML = pfs.map(p => `<button data-pf="${p.id}" role="tab">${esc(p.name)}</button>`).join("");
   $("#updated").textContent = `Last bot run: ${META.updated} · latest market data: ${META.latest_market_date}`;
   $("#runlog").textContent = (META.run_log || []).slice(1).join(" · ");
   try { RES = await get("research.json"); } catch (e) { RES = null; }
@@ -51,7 +60,12 @@ async function load() {
 }
 
 function render() {
+  DATA = ALL[pf];
   const S = DATA[mode];
+  const c = DATA.meta.config || {};
+  $$("#pfSeg button").forEach(b => b.classList.toggle("on", b.dataset.pf === pf));
+  $("#pfNote").textContent = c.max_positions ? `Up to ${c.max_positions} stocks of about ${rs(S.start_capital * Math.min(c.max_weight, 0.98 / c.max_positions), 0)} each` : "";
+  $("#growthTitle").textContent = `Growth of ${rs(S.start_capital)}`;
   $$(".mode button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
   const B = $("#modeBanner");
   if (mode === "live") {
@@ -419,6 +433,12 @@ function robustness() {
 
 /* ---- events */
 $$(".mode button").forEach(b => b.onclick = () => { mode = b.dataset.mode; render(); });
+$("#pfSeg").onclick = e => {
+  const b = e.target.closest("button"); if (!b || b.dataset.pf === pf) return;
+  pf = b.dataset.pf;
+  try { localStorage.setItem("pf", pf); } catch (err) { }
+  render();
+};
 $("#rangeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; range = +b.dataset.r; $$("#rangeSeg button").forEach(x => x.classList.toggle("on", x === b)); equityChart(DATA[mode]); };
 $("#tradeSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; tradeFilter = b.dataset.f; $$("#tradeSeg button").forEach(x => x.classList.toggle("on", x === b)); trades(DATA[mode]); };
 $("#filters").onclick = e => { const b = e.target.closest("button"); if (!b) return; logFilter = b.dataset.f; terminal(DATA[mode], true); };

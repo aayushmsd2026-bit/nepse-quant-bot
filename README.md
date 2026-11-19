@@ -35,6 +35,15 @@ Built from **8 years of NEPSE data (2019–2026, ~1,800 trading days, 475 stocks
 | **Market timing / bear-market cash filter:** did not reduce the worst drop | Removed |
 | **Re-learning weights daily:** +156% vs +238% with fixed weights, and a deeper worst drop | Weights fixed; health monitor only |
 
+### Two live portfolios
+| | Rs 5 lakh | Rs 1 lakh |
+|---|---|---|
+| Stocks | 16, about Rs 30,000 each | 10, about Rs 10,000 each |
+| Why | — | 16 slices of Rs 6,000 fall under the minimum order and fixed fees (Rs 10 commission floor, Rs 25 DP charge) bite; 10 stocks tested best for this size |
+| State file | `data/live_state.json` | `data/live_state_100k.json` |
+
+Same model, signals and rules otherwise. Switch between them at the top of the dashboard (or open it with `?pf=100k`).
+
 ### Rules
 - **Universe:** common stocks in the top 60% by turnover with at least Rs 10 lakh/day.
 - **Portfolio:** 16 stocks, about 6% each (max 8%), max 35% per sector, bought from the top 15% of scores. Always ~98% invested.

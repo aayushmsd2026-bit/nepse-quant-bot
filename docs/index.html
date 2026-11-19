@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NEPSE Quant Lab</title>
-<meta name="description" content="A transparent, open-source paper-trading bot for the Nepal Stock Exchange. Starts with Rs 5,00,000 of virtual money and trades daily on real NEPSE data.">
+<meta name="description" content="A transparent, open-source paper-trading bot for the Nepal Stock Exchange. Two virtual portfolios (Rs 5 lakh and Rs 1 lakh) trading daily on real NEPSE data.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -40,6 +40,11 @@
 </div></nav>
 
 <main class="wrap">
+  <div class="pfbar">
+    <span class="pflabel">Portfolio</span>
+    <div class="seg pf" id="pfSeg" role="tablist" aria-label="Choose portfolio"></div>
+    <span class="pfnote" id="pfNote"></span>
+  </div>
   <div class="banner" id="modeBanner"></div>
 
   <!-- ===================== OVERVIEW -->
@@ -68,10 +73,10 @@
         </div>
       </div>
       <div class="card">
-        <div class="card-h"><h3>Growth of Rs 5,00,000</h3>
+        <div class="card-h"><h3 id="growthTitle">Growth of your money</h3>
           <div class="seg" id="rangeSeg"><button data-r="31">1M</button><button data-r="92">3M</button><button data-r="366">1Y</button><button class="on" data-r="0">All</button></div></div>
         <div class="chart"><canvas id="eqChart"></canvas></div>
-        <p class="hint">Gold line = the bot. Blue dashed = Rs 5,00,000 following the NEPSE index. Purple dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
+        <p class="hint">Gold line = the bot. Blue dashed = the same starting amount following the NEPSE index. Purple dotted = the "average liquid stock" (equal amounts in every stock the bot may buy, with no trading costs: a tough, idealised benchmark).</p>
       </div>
     </div>
 
@@ -165,7 +170,7 @@
   <section id="robust">
     <div class="plate" data-plate="robust"></div>
     <h2>Can we trust it?</h2>
-    <p class="lead">A backtest can look brilliant by luck. These checks try to break the model. The settings were chosen using data up to <b><span class="rbCut">—</span></b> only; the <b>hold-out</b> after that was run once, after everything was frozen.</p>
+    <p class="lead">A backtest can look brilliant by luck. These checks try to break the model. The settings were chosen using data up to <b><span class="rbCut">—</span></b> only; the <b>hold-out</b> after that was run once, after everything was frozen. These checks were run on the Rs 5 lakh portfolio; the Rs 1 lakh version uses the same model with 10 stocks instead of 16 (see its own track record above).</p>
     <div class="stack">
       <div class="card">
         <h3>Start-date luck <i class="tip" data-tip="The same model started on four different days. If results depend heavily on the starting day, the edge is fragile.">?</i></h3>
@@ -224,10 +229,10 @@
     <h2>How it works, step by step</h2>
     <ol class="steps">
       <li><b>After 3:10 PM: market closed.</b> A GitHub Actions robot downloads every stock's prices, volume and average price (VWAP), plus the NEPSE index. It refuses half-day or incomplete data, and holidays are skipped automatically.</li>
-      <li><b>Filter.</b> It drops mutual funds, bonds, debentures, promoter shares and the least-traded 40% of stocks, so every trade is realistic for a Rs 5 lakh account.</li>
+      <li><b>Filter.</b> It drops mutual funds, bonds, debentures, promoter shares and the least-traded 40% of stocks, so every trade is realistic for a Rs 1–5 lakh account.</li>
       <li><b>Score.</b> 7 signals measure crowd attention: how heavily a stock trades, whether its turnover just surged, late-day price pushes, circuit chasing, lottery-like spikes, plus calmness and distance from the 52-week high. Quiet, steady stocks score best.</li>
       <li><b>Never-buy rules.</b> No stock at the upper circuit today, none that hit the lower circuit in the last 5 days, none within 20 days of a bonus/right-share price adjustment, and none of the 10% with the heaviest late-day buying.</li>
-      <li><b>Build the portfolio.</b> 16 stocks of about 6% each (max 35% per sector), bought from the top 15% of scores. Always almost fully invested: trying to time the market did not help in testing.</li>
+      <li><b>Build the portfolio.</b> Rs 5 lakh: 16 stocks of about 6% each. Rs 1 lakh: 10 stocks of about Rs 10,000 each, because smaller slices would fall under a sensible minimum order and fixed fees would bite. Max 35% per sector, bought from the top 15% of scores. Always almost fully invested: trying to time the market did not help in testing.</li>
       <li><b>Review each holding every 60 trading days.</b> A stock is kept while it stays in the better half of all scores, otherwise replaced. Reviews are staggered so the whole portfolio is never re-decided on one day.</li>
       <li><b>No stop-losses.</b> In 8 years of data, stocks sold by a stop-loss did not keep falling, so stops only locked in losses and doubled the fees. The one automatic exit is a lower-circuit day.</li>
       <li><b>Realistic execution.</b> Orders fill at the next session's VWAP plus a cost that grows with order size and how thin the stock is. Locked circuits, T+2 settlement, suspensions, commission, SEBON fee, DP charge and capital-gains tax are all simulated.</li>
