@@ -86,6 +86,14 @@ function countUp(el, to, fmt) {
 
 function kpis(S) {
   const M = S.metrics || {}, eq = M.equity ?? S.start_capital, last = S.equity.at(-1) || {};
+  if (M.xirr_pct != null) {
+    $("#kXirr").innerHTML = `<span class="${cls(M.xirr_pct)}">${pct(M.xirr_pct, 1)}</span><small class="muted"> /yr</small>`;
+    $("#kXirrSub").textContent = M.nepse_xirr_pct != null ? `NEPSE same dates: ${pct(M.nepse_xirr_pct, 1)}/yr` : "";
+  } else {
+    $("#kXirr").textContent = "—";
+    const left = (M.xirr_min_days || 60) - (M.days || 0);
+    $("#kXirrSub").textContent = `Shown after ${M.xirr_min_days || 60} days (${Math.max(left, 0)} to go)`;
+  }
   countUp($("#kEquity"), eq, v => rs(v));
   const prev = S.equity.at(-2);
   const dch = prev ? (eq / prev.equity - 1) * 100 : 0;
@@ -117,7 +125,7 @@ function story(S) {
   const b = S.brain || {}, hv = Object.values(b.health || {});
   const okN = hv.filter(v => v === "ok").length;
   $("#mood").textContent = hv.length ? `${okN} of ${hv.length}` : "—";
-  $("#gross").textContent = b.next_review != null ? (b.next_review ? `in ${b.next_review} days` : "today") : "—";
+  $("#gross").textContent = b.next_review != null ? (b.next_review ? `in ${b.next_review} day${b.next_review === 1 ? "" : "s"}` : "today") : "—";
   $("#moodNeedle").style.left = hv.length ? `${8 + 84 * okN / hv.length}%` : "50%";
 }
 
@@ -313,7 +321,8 @@ function record(S) {
   const M = S.metrics || {};
   const seg = (t, x, note) => x ? `<div class="sp"><small>${t}</small><div class="big ${cls(x.return_pct)}">${pct(x.return_pct, 1)}</div>
     <div class="vs">NEPSE ${pct(x.nepse_return_pct, 1)} · avg stock ${pct(x.ew_return_pct, 1)}</div>
-    <div class="vs">Worst drop ${pct(x.max_drawdown_pct, 1)} (NEPSE ${pct(x.nepse_drawdown_pct, 1)})${x.cagr_pct != null ? ` · ${x.cagr_pct}%/yr` : ""}</div>${note ? `<div class="vs muted">${note}</div>` : ""}</div>` : "";
+    ${x.xirr_pct != null ? `<div class="vs">XIRR <b class="${cls(x.xirr_pct)}">${pct(x.xirr_pct, 1)}/yr</b> (NEPSE ${pct(x.nepse_xirr_pct, 1)}/yr)</div>` : ""}
+    <div class="vs">Worst drop ${pct(x.max_drawdown_pct, 1)} (NEPSE ${pct(x.nepse_drawdown_pct, 1)})</div>${note ? `<div class="vs muted">${note}</div>` : ""}</div>` : "";
   $("#split").innerHTML = seg(`Whole period · ${M.from || "—"} → ${M.to || "—"}`, M)
     + seg(`Design period (model built on this) · until ${META.split}`, M.design, "In-sample: flatters the model")
     + seg(`Hold-out test (never seen in design) · after ${META.split}`, M.holdout, "The honest number");

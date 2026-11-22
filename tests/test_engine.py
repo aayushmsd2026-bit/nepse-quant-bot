@@ -168,3 +168,27 @@ def test_index_file_is_clean():
     assert idx["date"].is_monotonic_increasing and idx["date"].is_unique
     assert (idx["close"] > 500).all() and (idx["close"] < 20_000).all()
     assert idx["close"].pct_change().abs().max() < 0.12       # index cannot jump more than circuits allow
+
+
+# ---------------------------------------------------------------- XIRR
+def test_xirr_matches_known_values():
+    # Rs 100 grows to Rs 110 in exactly one year -> 10% a year
+    assert E.xirr([("2023-01-01", -100), ("2024-01-01", 110)]) == pytest.approx(0.10, abs=1e-4)
+    # doubling in two years -> sqrt(2) - 1
+    assert E.xirr([("2022-01-01", -100), ("2024-01-01", 200)]) == pytest.approx(2 ** (365 / 730) - 1, abs=1e-4)
+    # a loss
+    assert E.xirr([("2023-01-01", -100), ("2024-01-01", 80)]) == pytest.approx(-0.20, abs=1e-4)
+    # two deposits (Excel XIRR reference: -1000 on 2023-01-01, -1000 on 2023-07-01, +2200 on 2024-01-01)
+    r = E.xirr([("2023-01-01", -1000), ("2023-07-01", -1000), ("2024-01-01", 2200)])
+    npv = -1000 - 1000 / (1 + r) ** (181 / 365) + 2200 / (1 + r) ** (365 / 365)
+    assert abs(npv) < 1e-4 and 0.12 < r < 0.14
+    assert E.xirr([("2023-01-01", 100), ("2024-01-01", 110)]) is None     # no money put in
+
+
+def test_xirr_in_metrics(run):
+    eng, _, _ = run
+    m = E.metrics(eng.s)
+    assert m["days"] >= E.XIRR_MIN_DAYS and m["xirr_pct"] is not None
+    years = m["days"] / 365
+    assert m["xirr_pct"] == pytest.approx(((1 + m["return_pct"] / 100) ** (1 / years) - 1) * 100, abs=0.05)
+    assert m["nepse_xirr_pct"] is not None

@@ -709,6 +709,44 @@ class Engine:
 
 
 # ------------------------------------------------------------------ metrics
+XIRR_MIN_DAYS = 60   # annualising a few weeks of returns gives absurd numbers; wait this long
+
+
+def xirr(flows: list[tuple[str, float]]) -> float | None:
+    """Annual rate r that makes the dated cash flows net to zero:
+        sum(amount / (1 + r) ** (days_since_first / 365)) = 0
+    Money put in is negative, money taken out (or the final value) positive. This is
+    Excel's XIRR. Solved by bisection, which always converges for one sign change."""
+    if len(flows) < 2:
+        return None
+    t0 = pd.Timestamp(flows[0][0])
+    pts = [((pd.Timestamp(d) - t0).days / 365.0, float(a)) for d, a in flows]
+    if not any(a < 0 for _, a in pts) or not any(a > 0 for _, a in pts) or pts[-1][0] <= 0:
+        return None
+    npv = lambda r: sum(a / (1 + r) ** t for t, a in pts)
+    lo, hi = -0.9999, 10.0
+    f_lo, f_hi = npv(lo), npv(hi)
+    if f_lo * f_hi > 0:
+        return None
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        f_mid = npv(mid)
+        if abs(f_mid) < 1e-7 or hi - lo < 1e-10:
+            break
+        if f_lo * f_mid < 0:
+            hi, f_hi = mid, f_mid
+        else:
+            lo, f_lo = mid, f_mid
+    return (lo + hi) / 2
+
+
+def _xirr_pct(flows):
+    if not flows or (pd.Timestamp(flows[-1][0]) - pd.Timestamp(flows[0][0])).days < XIRR_MIN_DAYS:
+        return None
+    r = xirr(flows)
+    return None if r is None else round(r * 100, 2)
+
+
 def _seg(eq: pd.DataFrame, start_capital: float):
     e = eq["equity"].astype(float)
     r = e.pct_change().dropna()
@@ -730,6 +768,10 @@ def _seg(eq: pd.DataFrame, start_capital: float):
         "sharpe": round(float(r.mean() / r.std() * math.sqrt(235)), 2) if len(r) > 10 and r.std() > 0 else None,
         "nepse_sharpe": round(float(rn.mean() / rn.std() * math.sqrt(235)), 2) if len(r) > 10 and rn.std() > 0 else None,
         "vol_pct": round(float(r.std() * math.sqrt(235)) * 100, 1) if len(r) > 10 else None,
+        "days": int((pd.Timestamp(eq["date"].iloc[-1]) - pd.Timestamp(eq["date"].iloc[0])).days),
+        "xirr_pct": _xirr_pct([(eq["date"].iloc[0], -float(e.iloc[0])), (eq["date"].iloc[-1], float(e.iloc[-1]))]),
+        "nepse_xirr_pct": _xirr_pct([(eq["date"].iloc[0], -float(nep.iloc[0])), (eq["date"].iloc[-1], float(nep.iloc[-1]))])
+        if nep.notna().any() else None,
         "beta": None if beta is None else round(beta, 2),
     }
 
@@ -741,6 +783,19 @@ def metrics(state: dict, split: str | None = None) -> dict:
     start = state["start_capital"]
     out = _seg(eq, start)
     out["return_pct"] = round((eq["equity"].iloc[-1] / start - 1) * 100, 2)
+    # Whole-life XIRR from the actual deposits. Today there is one deposit (the starting
+    # capital); "flows" in the state allows adding money later without breaking the maths.
+    deposits = state.get("flows") or [{"date": state.get("inception") or eq["date"].iloc[0], "amount": start}]
+    end_d, end_v = eq["date"].iloc[-1], float(eq["equity"].iloc[-1])
+    flows = [(f["date"], -float(f["amount"])) for f in deposits] + [(end_d, end_v)]
+    # NEPSE on the same dates: each deposit buys "index units" at that day's level
+    lvl = eq.set_index("date")["nepse"].astype(float).ffill()
+    at = lambda d: lvl[lvl.index <= d].dropna().iloc[-1] if (lvl.index <= d).any() else np.nan
+    units = sum(f["amount"] / at(f["date"]) for f in deposits if not pd.isna(at(f["date"])))
+    nflows = [(f["date"], -float(f["amount"])) for f in deposits] + [(end_d, units * float(lvl.iloc[-1]))]
+    out["xirr_pct"], out["nepse_xirr_pct"] = _xirr_pct(flows), _xirr_pct(nflows)
+    out["days"] = int((pd.Timestamp(end_d) - pd.Timestamp(deposits[0]["date"])).days)
+    out["xirr_min_days"] = XIRR_MIN_DAYS
     closed = [t for t in state["trades"] if t.get("status") == "FILLED" and t["side"] == "SELL"]
     wins = [t for t in closed if t["pnl"] > 0]
     out.update({
