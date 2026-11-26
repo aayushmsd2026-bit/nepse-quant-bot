@@ -24,6 +24,7 @@ const PLATES = {
   trades: [232, [["Carmine", "#cc1236"], ["Pinkish Cinnamon", "#eeb480"], ["Deep Indigo", "#051230"]]],
   costs: [211, [["Apricot Orange", "#f68c50"], ["Olive Yellow", "#a6a159"], ["Deep Indigo", "#051230"]]],
   how: [155, [["Jasper Red", "#eb5324"], ["Benzol Green", "#00978d"], ["Deep Indigo", "#051230"]]],
+  quick: [216, [["Jasper Red", "#eb5324"], ["Green", "#489b6e"], ["Black", "#111314"]]],
   robust: [247, [["Raw Sienna", "#bb7125"], ["Apricot Yellow", "#ffdd00"], ["Benzol Green", "#00978d"], ["Deep Lyons Blue", "#1c4286"]]],
 };
 function plates() {
@@ -34,7 +35,7 @@ function plates() {
   });
 }
 
-let RES = null, ROB = null, ALL = {}, pf = "500k";
+let RES = null, ROB = null, QT = null, qh = 5, ALL = {}, pf = "500k";
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
@@ -53,10 +54,12 @@ async function load() {
   $("#runlog").textContent = (META.run_log || []).slice(1).join(" · ");
   try { RES = await get("research.json"); } catch (e) { RES = null; }
   try { ROB = await get("robustness.json"); } catch (e) { ROB = null; }
+  try { QT = await get("shortterm.json"); } catch (e) { QT = null; }
   $("#modelTag").textContent = META.model ? "· MODEL " + META.model.toUpperCase() : "";
   render();
   if (RES) research();
   if (ROB) robustness();
+  if (QT) quick();
 }
 
 function render() {
@@ -440,8 +443,70 @@ function robustness() {
     <li><b>Why keep running it live:</b> a backtest is an argument; the live tab is the evidence. Every trading day adds to it.</li></ul>`;
 }
 
+const VB = { edge: ["EDGE", "edge"], avoid: ["AVOID", "avoid"], noise: ["NO EDGE", "noise"], "too few": ["TOO FEW", "few"] };
+function quick() {
+  const Q = QT, H = "h" + qh, S = Q.setups, keys = Object.keys(S);
+  const vb = v => `<span class="vb ${VB[v]?.[1] || "noise"}">${VB[v]?.[0] || v}</span>`;
+  const nEdge = keys.filter(k => S[k].verdict === "edge").length, nAvoid = keys.filter(k => S[k].verdict === "avoid").length;
+  const an = Q.announcement || {}, b10 = an.bonus10 || {};
+  const cell = x => x && x.net != null ? `<td class="${cls(x.net)}"><b>${pct(x.net, 1)}</b></td><td class="muted">${x.win.toFixed(0)}%</td><td class="${cls(x.excess)}">${pct(x.excess, 1)}</td>` : `<td colspan="3" class="muted">too few</td>`;
+  $("#qVerdict").innerHTML = `<h3>The short answer</h3><ul>
+    <li><b>${nEdge ? `${nEdge} setup(s) showed a real edge.` : "No short-term setup made money after costs"}</b> in either period. Of ${keys.length} setups tested, <b>${nAvoid} are reliably worse than the market</b>: chasing upper circuits, volume spikes, late pushes, rallies and breakouts loses money on NEPSE.</li>
+    <li><b>The costs are the wall.</b> A round trip costs about ${Q.cost_pct.toFixed(1)}% plus ${Q.cgt_pct.toFixed(1)}% tax on profit. Even the best setup (buying after a weak close) beats the market by only ~0.3% over 5 days.</li>
+    <li><b>The one real pattern is invisible to the public.</b> Before a bonus of 10%+ is announced, the stock beats the market by <b>${pct(b10.pre, 1)}</b> over 20 trading days. After the announcement it gives back <b>${pct(b10.post, 1)}</b>. By the time the news is public, the move is over.</li>
+    <li><b>What would change this:</b> seeing who is buying before the news (broker floorsheet data). The bot started recording it daily; see the bottom of this section.</li></ul>`;
+  $("#qTable").innerHTML = `<thead><tr><th>Setup (seen at the close)</th><th>Design: net</th><th>win</th><th>vs market</th><th>Hold-out: net</th><th>win</th><th>vs market</th><th>Trades</th><th>Verdict</th></tr></thead><tbody>` +
+    keys.sort((a, b) => ({ edge: 0, noise: 1, "too few": 2, avoid: 3 }[S[a].verdict] - { edge: 0, noise: 1, "too few": 2, avoid: 3 }[S[b].verdict]) || ((S[b].holdout?.[H]?.excess ?? -99) - (S[a].holdout?.[H]?.excess ?? -99)))
+      .map(k => { const r = S[k], d = r.design?.[H], o = r.holdout?.[H];
+        return `<tr><td><b>${esc(r.label)}</b><small>${esc(r.desc)}</small></td>${cell(d)}${cell(o)}<td class="muted">${((d?.n || 0) + (o?.n || 0)).toLocaleString("en-IN")}</td><td>${vb(r.verdict)}</td></tr>`; }).join("") + "</tbody>";
+
+  const bc = Q.book_closure || {};
+  charts.qp?.destroy();
+  if (an.days) {
+    charts.qp = new Chart($("#qPath"), {
+      type: "line",
+      data: { labels: an.days.map(d => d === 0 ? "Day 0" : (d > 0 ? "+" + d : d)), datasets: [
+        { label: `Bonus 10%+ announcement (${b10.n})`, data: b10.cum_excess, borderColor: css("--c1"), borderWidth: 2.2, pointRadius: 0, tension: .25 },
+        { label: `Any dividend announcement (${an.n})`, data: an.cum_excess, borderColor: css("--c2"), borderWidth: 1.8, borderDash: [5, 4], pointRadius: 0, tension: .25 },
+        { label: `Book-closure day (${bc.n})`, data: bc.cum_excess, borderColor: css("--c3"), borderWidth: 1.6, borderDash: [2, 3], pointRadius: 0, tension: .25 }] },
+      options: baseChartOpts({ plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 10, usePointStyle: true } },
+        tooltip: { callbacks: { title: c => `Trading day ${c[0].label}`, label: c => `${c.dataset.label}: ${pct(c.parsed.y, 2)} vs market` } } },
+        scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 9, maxRotation: 0 }, grid: { display: false } }, y: { ticks: { color: css("--muted"), callback: v => v + "%" }, grid: { color: css("--line") } } } }),
+    });
+    $("#qPathNote").innerHTML = `Return vs the average stock, set to 0 the day before the event (day 0). The stock rises <b>before</b> the public announcement and drifts down after it. That pattern suggests informed buying ahead of the news.`;
+  }
+  const dv = Q.dividends;
+  if (dv) {
+    const rowD = (g, per, k) => { const x = dv.groups[g]?.[per]?.[k] || {}; return x.net != null ? `<td class="${cls(x.net)}">${pct(x.net, 1)}</td><td class="${cls(x.excess)}">${pct(x.excess, 1)}</td>` : `<td colspan="2" class="muted">few</td>`; };
+    $("#qDiv").innerHTML = `<thead><tr><th>Buy the day after the announcement…</th><th>Design net</th><th>vs mkt</th><th>Hold-out net</th><th>vs mkt</th></tr></thead><tbody>` +
+      Object.keys(dv.groups).flatMap(g => [["sell_before", "sell 3 days before book closure"], ["hold_through", "hold through, collect bonus/dividend"]].map(([k, lab]) =>
+        `<tr><td><b>${esc(g)}</b><small class="muted" style="display:block">${lab}</small></td>${rowD(g, "design", k)}${rowD(g, "holdout", k)}</tr>`)).join("") + "</tbody>";
+    $("#qDivNote").innerHTML = `Uses ${dv.n_tradable} tradable announcements from ShareSansar's dividend calendar (median ${dv.median_gap_days} trading days between announcement and book closure). None of these beat the market after costs, so the public calendar is priced in almost immediately.`;
+  }
+  const T = Q.today || {};
+  $("#qToday").textContent = T.date ? `as of ${fmtDate(T.date)}` : "";
+  const hist = k => S[k]?.holdout?.[H];
+  $("#qRadar").innerHTML = (T.triggers || []).length ? T.triggers.map(t => {
+    const h = hist(t.setup);
+    return `<div class="qgroup"><div class="qh"><b>${esc(t.label)}</b>${vb(t.verdict)}<span class="muted">${t.count} stock${t.count === 1 ? "" : "s"}${h && h.net != null ? ` · historically ${pct(h.net, 1)} net after ${qh} days, won ${h.win.toFixed(0)}% of the time` : ""}</span></div>
+      <div class="chips">${t.stocks.map(x => `<span class="chip2" title="${esc(x.sector)}">${x.sym}<small>${pct(x.chg, 1)}</small></span>`).join("")}</div></div>`;
+  }).join("") : `<div class="empty">No setup triggered at the latest close.</div>`;
+  const fs = Q.floorsheet || {};
+  const N = [
+    ["have", "Daily prices, volume, VWAP (2019→)", "The basis of every test on this page. ~1,800 trading days, 475 stocks."],
+    ["have", `Dividend & bonus calendar (${dv ? dv.n_announcements.toLocaleString("en-IN") : "—"} announcements)`, "Announcement and book-closure dates from ShareSansar, refreshed weekly. Showed that the public calendar is priced in too fast to trade."],
+    ["collecting", `Broker floorsheet (${fs.days || 0} day${fs.days === 1 ? "" : "s"} collected${fs.first ? `, since ${fs.first}` : ""})`, "Who bought and who sold, by broker number. Could detect quiet accumulation before news. Only today's sheet is ever published, so the bot now saves a summary every day. Testable after ~6–12 months."],
+    ["missing", "Quarterly earnings (EPS) with release dates", "Stocks often keep drifting after a surprise result. Needs each company's quarterly report and the date it was published; not available in bulk for free."],
+    ["missing", "Intraday prices & order book (market depth)", "Short-term edges usually live inside the day. NEPSE's live depth is not archived publicly, so it cannot be backtested."],
+    ["missing", "News & AGM / right-share notices with timestamps", "To know exactly when information became public. Scattered across company notices and news sites."],
+  ];
+  const nc = { have: "--green", collecting: "--amber", missing: "--red" }, nl = { have: "Have", collecting: "Collecting now", missing: "Not available" };
+  $("#qNeeds").innerHTML = N.map(([st, t, d]) => `<div class="need" style="--nc:var(${nc[st]})"><span class="st">${nl[st]}</span><b>${t}</b><p>${d}</p></div>`).join("");
+}
+
 /* ---- events */
 $$(".mode button").forEach(b => b.onclick = () => { mode = b.dataset.mode; render(); });
+$("#qH").onclick = e => { const b = e.target.closest("button"); if (!b) return; qh = +b.dataset.h; $$("#qH button").forEach(x => x.classList.toggle("on", x === b)); if (QT) quick(); };
 $("#pfSeg").onclick = e => {
   const b = e.target.closest("button"); if (!b || b.dataset.pf === pf) return;
   pf = b.dataset.pf;
@@ -465,6 +530,7 @@ $("#theme").onclick = () => {
   render();
   if (RES) research();
   if (ROB) robustness();
+  if (QT) quick();
 };
 try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
 setThemeIcon();

@@ -192,3 +192,28 @@ def test_xirr_in_metrics(run):
     years = m["days"] / 365
     assert m["xirr_pct"] == pytest.approx(((1 + m["return_pct"] / 100) ** (1 / years) - 1) * 100, abs=0.05)
     assert m["nepse_xirr_pct"] is not None
+
+
+# ---------------------------------------------------------------- short-term study
+def test_shortterm_costs_and_verdict():
+    import pandas as pd
+    from bot import shortterm as ST
+    g = pd.Series([0.0, 0.10, -0.10])
+    n = ST.net(g)
+    assert n[0] == pytest.approx(-ST.COST)                                   # flat trade loses the costs
+    assert n[1] == pytest.approx(((1.10 * (1 - ST.COST)) - 1) * (1 - ST.CGT))  # tax only on profit
+    assert n[2] == pytest.approx(0.90 * (1 - ST.COST) - 1)
+    good = {"design": {"h5": {"n": 100, "net": 1, "excess": 1, "t": 3}}, "holdout": {"h5": {"n": 50, "net": 1, "excess": 1, "t": 1}}}
+    bad = {"design": {"h5": {"n": 100, "net": -1, "excess": -1, "t": -3}}, "holdout": {"h5": {"n": 50, "net": -1, "excess": -1, "t": -3}}}
+    assert ST.verdict(good) == "edge" and ST.verdict(bad) == "avoid"
+    assert ST.verdict({"design": {"h5": {"n": 5}}, "holdout": {"h5": {"n": 5}}}) == "too few"
+
+
+def test_floorsheet_summary():
+    from bot.floorsheet import summarise
+    rows = [{"buyer": "1", "seller": "2", "quantity": "100", "amount": "10000", "date_": "2026-01-01"},
+            {"buyer": "1", "seller": "3", "quantity": "50", "amount": "5000", "date_": "2026-01-01"},
+            {"buyer": "4", "seller": "1", "quantity": "50", "amount": "5000", "date_": "2026-01-01"}]
+    s = summarise("ABC", rows)
+    assert s["qty"] == 200 and s["buyers"] == 2 and s["top_buyer"] == "1"
+    assert s["top_buyer_pct"] == 75.0 and s["top_net_broker"] == "1" and s["top_net_pct"] == 50.0

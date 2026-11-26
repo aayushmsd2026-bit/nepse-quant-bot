@@ -17,7 +17,7 @@ import sys
 import warnings
 from pathlib import Path
 
-from . import fetch, research
+from . import events, fetch, floorsheet, research, shortterm
 from .engine import MODEL_VERSION, PORTFOLIOS, SIGNALS, Config, Engine, Market, config_for, metrics
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -142,6 +142,28 @@ def main():
         summary[pid] = (f"{tag}: live Rs {lm.get('equity')}, {len(live.s['positions'])} holdings | historical "
                         f"{bms[pid]['return_pct']}% (NEPSE {bms[pid]['nepse_return_pct']}%), design "
                         f"{bms[pid].get('design', {}).get('return_pct')}%, hold-out {bms[pid].get('holdout', {}).get('return_pct')}%")
+
+    # ---------------- extra data + short-term study (never allowed to break the daily run)
+    if new_days and latest in new_days:
+        try:
+            d = latest
+            syms = [x for x in mkt.symbols if bool(mkt.traded.at[d, x])]
+            run_log.append(floorsheet.collect(d, syms))
+        except Exception as e:
+            run_log.append(f"floorsheet collection failed: {e}")
+    try:
+        div = events.OUT
+        stale = not div.exists() or (dt.datetime.now(NPT).weekday() == 6 and new_days)   # refresh weekly (Sundays)
+        if stale and "--no-fetch" not in sys.argv:
+            events.update()
+            run_log.append("dividend / book-closure calendar refreshed")
+    except Exception as e:
+        run_log.append(f"dividend calendar refresh failed: {e}")
+    try:
+        shortterm.main()
+        run_log.append("short-term radar updated")
+    except Exception as e:
+        run_log.append(f"short-term study failed: {e}")
 
     rpath = OUT / "research.json"
     # Age = days between the data the research covers and the newest market data.

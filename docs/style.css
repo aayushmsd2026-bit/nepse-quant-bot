@@ -305,3 +305,21 @@ td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;font-varia
 .seg.pf button.on{color:var(--amber)}
 .pfnote{color:var(--ink2);font-size:13px}
 .pfbar + .banner{margin-top:12px}
+
+/* ---------- quick trades */
+.qtab td small{display:block;color:var(--muted);font-size:11.5px;white-space:normal;max-width:300px}
+.qtab td:first-child{white-space:normal}
+.vb{display:inline-block;font:600 10px "IBM Plex Mono";letter-spacing:.06em;padding:2px 7px;border-radius:2px}
+.vb.edge{background:var(--green-s);color:var(--green)}.vb.avoid{background:var(--red-s);color:var(--red)}
+.vb.noise,.vb.few{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--ink2)}
+.qgroup{border-top:1px solid var(--line);padding:10px 0}.qgroup:first-child{border-top:0}
+.qgroup .qh{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13.5px}
+.qgroup .qh b{font-family:Fraunces,Georgia,serif;font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip2{font:500 12px "IBM Plex Mono";padding:3px 8px;border:1px solid var(--line);border-radius:2px;background:var(--bg2);color:var(--ink)}
+.chip2 small{color:var(--muted);margin-left:4px}
+.needs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.need{border:1px solid var(--line);border-radius:4px;padding:12px 14px;background:var(--bg2);border-left:3px solid var(--nc,var(--line))}
+.need b{font-family:Fraunces,Georgia,serif;font-size:15px;display:block;margin-bottom:2px}
+.need .st{font:600 10px "IBM Plex Mono";letter-spacing:.08em;text-transform:uppercase;color:var(--nc)}
+.need p{margin:4px 0 0;font-size:13px;color:var(--ink2)}

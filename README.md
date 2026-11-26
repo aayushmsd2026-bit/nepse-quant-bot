@@ -81,6 +81,16 @@ Reproduce: `python -m bot.research` (patterns) and `python -m bot.robustness` (s
 
 **Likely next real edges** need data this bot doesn't have: fundamentals (EPS, P/E, book value, dividends), floorsheet broker accumulation, and book-closure/AGM dates.
 
+## Quick trades (1–2 weeks): what history says
+
+`python -m bot.shortterm` tests 11 short-term setups as real trades: buy at the next session's VWAP, sell 3/5/10 trading days later (T+2 makes 3 the minimum), ~1.4% round-trip costs + 7.5% CGT, compared with the average stock, design vs hold-out.
+
+- **No setup made money after costs** in either period. Chasing (upper circuits, volume spikes, late pushes, rallies, breakouts) is reliably worse than the market.
+- **The one real pattern is pre-announcement:** before a 10%+ bonus is announced, the stock beats the market by ~4.6% over 20 trading days, then gives ~2% back after. Buying on the public announcement (data: `bot/events.py`, ShareSansar dividend calendar, 2018→) did not beat the market.
+- **Next data:** `bot/floorsheet.py` now saves a daily broker summary (only today's floorsheet is ever published), so broker-accumulation signals can be tested after 6–12 months. Quarterly earnings dates, intraday depth and timestamped news are not freely available.
+
+The dashboard's **Quick trades** section shows all of this plus a daily radar of stocks that triggered each setup.
+
 ## Run it yourself
 
 ```bash

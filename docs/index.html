@@ -35,7 +35,7 @@
 </header>
 
 <nav class="subnav"><div class="wrap">
-  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#robust">Robustness</a>
+  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#quick">Quick trades</a><a href="#robust">Robustness</a>
   <a href="#log">Activity log</a><a href="#trades">Trades</a><a href="#costs">Costs</a><a href="#how">How it works</a>
 </div></nav>
 
@@ -164,6 +164,41 @@
         <h3>NEPSE year by year</h3>
         <div class="chart sm"><canvas id="yearChart"></canvas></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ===================== QUICK TRADES -->
+  <section id="quick">
+    <div class="plate" data-plate="quick"></div>
+    <h2>Quick trades: 1–2 weeks</h2>
+    <p class="lead">Can you make quick wins on NEPSE by jumping on short-term spikes? Here is what <b>8 years of history</b> says. Every setup below is tested as a real trade: buy at the next session's average price, sell 3, 5 or 10 trading days later (T+2 makes 3 days the practical minimum), after <b>~1.4% round-trip costs and 7.5% tax on profit</b>. "Vs market" removes what the average stock did over the same days, so a rising market alone doesn't count.</p>
+    <div class="card verdict" id="qVerdict"></div>
+    <div class="card mt">
+      <div class="card-h"><h3>What happened after each setup</h3>
+        <div class="seg" id="qH"><button data-h="3">3 days</button><button class="on" data-h="5">5 days</button><button data-h="10">10 days</button></div></div>
+      <div class="tablewrap"><table class="years qtab" id="qTable"></table></div>
+      <p class="hint">Net = average result per trade after all costs and tax. Win = share of trades that made money. Design = 2019 to mid-2024; Hold-out = mid-2024 to today. <b>Edge</b> needs a profit after costs, a beat over the market in both periods and statistical strength; <b>Avoid</b> = reliably worse than the market; <b>No edge</b> = indistinguishable from luck.</p>
+    </div>
+    <div class="grid2 mt">
+      <div class="card">
+        <h3>The dividend / bonus run-up</h3>
+        <div class="chart"><canvas id="qPath"></canvas></div>
+        <p class="hint" id="qPathNote"></p>
+      </div>
+      <div class="card">
+        <h3>Trading the public dividend calendar</h3>
+        <div class="tablewrap"><table class="years" id="qDiv"></table></div>
+        <p class="hint" id="qDivNote"></p>
+      </div>
+    </div>
+    <div class="card mt">
+      <div class="card-h"><h3>Today's radar</h3><span class="muted" id="qToday"></span></div>
+      <div id="qRadar"></div>
+      <p class="hint">Stocks that triggered a setup at the latest close. This is <b>not a buy list</b>: the badge shows what that setup did historically. Most of them are traps.</p>
+    </div>
+    <div class="card mt">
+      <h3>What data would make short-term trading work?</h3>
+      <div class="needs" id="qNeeds"></div>
     </div>
   </section>
 
