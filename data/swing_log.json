@@ -1,0 +1,36 @@
+{
+ "weeks": [
+  {
+   "signal": "2026-11-25",
+   "picks": [
+    {
+     "sym": "MANDU",
+     "close": 852.0,
+     "points": 8
+    },
+    {
+     "sym": "HDL",
+     "close": 1350.0,
+     "points": 8
+    },
+    {
+     "sym": "STC",
+     "close": 5864.0,
+     "points": 8
+    },
+    {
+     "sym": "SHL",
+     "close": 558.5,
+     "points": 8
+    },
+    {
+     "sym": "LSL",
+     "close": 289.9,
+     "points": 7
+    }
+   ],
+   "days_left": 16,
+   "status": "open: judged in 16 trading days"
+  }
+ ]
+}

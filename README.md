@@ -91,6 +91,12 @@ Reproduce: `python -m bot.research` (patterns) and `python -m bot.robustness` (s
 
 The dashboard's **Quick trades** section shows all of this plus a daily radar of stocks that triggered each setup.
 
+## Chart picks (2–3 weeks)
+
+`python -m bot.technical` turns a chart analyst's toolkit into exact rules (20/50/200-day averages, MACD, RSI, ADX/DMI, squeeze breakouts, pullbacks, higher lows, 52-week highs, relative strength, volume). Each week it ranks liquid stocks on an 8-point bullish checklist and shows the top picks with ATR-based stop and target levels.
+
+**Backtest (buy next-day VWAP, hold 15 trading days, after costs):** the weekly top 5 went up 47% of the time in 2019–mid-2024 (random stock: 44%) but only 33% in mid-2024–2026 (random: 37%). None of the 11 chart signals beat random picks reliably. The picks are shown as an experiment, and every week's top 5 is logged in `data/swing_log.json` and judged 15 trading days later, so the dashboard keeps a live, uneditable scoreboard.
+
 ## Run it yourself
 
 ```bash

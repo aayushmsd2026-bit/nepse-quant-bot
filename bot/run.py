@@ -17,7 +17,7 @@ import sys
 import warnings
 from pathlib import Path
 
-from . import events, fetch, floorsheet, research, shortterm
+from . import events, fetch, floorsheet, research, shortterm, technical
 from .engine import MODEL_VERSION, PORTFOLIOS, SIGNALS, Config, Engine, Market, config_for, metrics
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -164,6 +164,11 @@ def main():
         run_log.append("short-term radar updated")
     except Exception as e:
         run_log.append(f"short-term study failed: {e}")
+    try:
+        technical.main()
+        run_log.append("chart picks updated")
+    except Exception as e:
+        run_log.append(f"chart picks failed: {e}")
 
     rpath = OUT / "research.json"
     # Age = days between the data the research covers and the newest market data.

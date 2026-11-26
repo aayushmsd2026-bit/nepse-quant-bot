@@ -35,7 +35,7 @@
 </header>
 
 <nav class="subnav"><div class="wrap">
-  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#quick">Quick trades</a><a href="#robust">Robustness</a>
+  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#quick">Quick trades</a><a href="#charts">Chart picks</a><a href="#robust">Robustness</a>
   <a href="#log">Activity log</a><a href="#trades">Trades</a><a href="#costs">Costs</a><a href="#how">How it works</a>
 </div></nav>
 
@@ -199,6 +199,31 @@
     <div class="card mt">
       <h3>What data would make short-term trading work?</h3>
       <div class="needs" id="qNeeds"></div>
+    </div>
+  </section>
+
+  <!-- ===================== CHART PICKS -->
+  <section id="charts">
+    <div class="plate" data-plate="charts"></div>
+    <h2>Chart picks: 2–3 weeks</h2>
+    <p class="lead">What a technical chart analyst would buy this week. The bot scores every liquid stock on an <b>8-point bullish checklist</b>: price above its 20- and 50-day averages, 50-day above 200-day, MACD above signal, RSI 50–70, ADX trend with buyers in control, top-30% strength vs NEPSE, rising volume. It shows the strongest. Below them is the honest part: how often such picks actually went up.</p>
+    <div class="card verdict" id="tVerdict"></div>
+    <div class="card mt">
+      <div class="card-h"><h3>This week's chart picks</h3><span class="muted" id="tDate"></span></div>
+      <div class="tpicks" id="tPicks"></div>
+      <p class="hint"><b>Stop</b> = 2 × the stock's average daily range below today's close; <b>target</b> = 3 × above (a common chart rule, not a forecast). On NEPSE you can only sell after T+2. This is a paper experiment, not investment advice.</p>
+    </div>
+    <div class="card mt">
+      <div class="card-h"><h3>Live scoreboard: are the picks right?</h3><span class="muted" id="tLiveNote"></span></div>
+      <div class="split" id="tLiveKpi"></div>
+      <div class="tablewrap"><table class="years" id="tLive"></table></div>
+      <p class="hint">Every week the top 5 picks are saved before the market opens and judged 15 trading days later (buy at the next session's average price, after all costs and tax). Nothing is ever edited afterwards.</p>
+    </div>
+    <div class="card mt">
+      <div class="card-h"><h3>Backtest: every chart signal since 2019</h3>
+        <div class="seg" id="tH"><button data-h="10">2 weeks</button><button class="on" data-h="15">3 weeks</button></div></div>
+      <div class="tablewrap"><table class="years qtab" id="tTable"></table></div>
+      <p class="hint">"Went up" = the trade made money after ~1.4% costs and tax. "Random" = what an average liquid stock did over the same weeks; a useful signal must clearly beat it. Design = 2019 to mid-2024; Hold-out = mid-2024 to today.</p>
     </div>
   </section>
 

@@ -25,6 +25,7 @@ const PLATES = {
   costs: [211, [["Apricot Orange", "#f68c50"], ["Olive Yellow", "#a6a159"], ["Deep Indigo", "#051230"]]],
   how: [155, [["Jasper Red", "#eb5324"], ["Benzol Green", "#00978d"], ["Deep Indigo", "#051230"]]],
   quick: [216, [["Jasper Red", "#eb5324"], ["Green", "#489b6e"], ["Black", "#111314"]]],
+  charts: [182, [["Raw Sienna", "#bb7125"], ["Vandyke Brown", "#4b3317"], ["Deep Indigo", "#051230"]]],
   robust: [247, [["Raw Sienna", "#bb7125"], ["Apricot Yellow", "#ffdd00"], ["Benzol Green", "#00978d"], ["Deep Lyons Blue", "#1c4286"]]],
 };
 function plates() {
@@ -35,7 +36,7 @@ function plates() {
   });
 }
 
-let RES = null, ROB = null, QT = null, qh = 5, ALL = {}, pf = "500k";
+let RES = null, ROB = null, QT = null, TC = null, th = 15, qh = 5, ALL = {}, pf = "500k";
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
@@ -55,11 +56,13 @@ async function load() {
   try { RES = await get("research.json"); } catch (e) { RES = null; }
   try { ROB = await get("robustness.json"); } catch (e) { ROB = null; }
   try { QT = await get("shortterm.json"); } catch (e) { QT = null; }
+  try { TC = await get("technical.json"); } catch (e) { TC = null; }
   $("#modelTag").textContent = META.model ? "· MODEL " + META.model.toUpperCase() : "";
   render();
   if (RES) research();
   if (ROB) robustness();
   if (QT) quick();
+  if (TC) chartPicks();
 }
 
 function render() {
@@ -504,8 +507,47 @@ function quick() {
   $("#qNeeds").innerHTML = N.map(([st, t, d]) => `<div class="need" style="--nc:var(${nc[st]})"><span class="st">${nl[st]}</span><b>${t}</b><p>${d}</p></div>`).join("");
 }
 
+function chartPicks() {
+  const T = TC, R = T.horizons["h" + th] || {}, R15 = T.horizons.h15 || {};
+  const e = R15.expert || {}, ed = e.design || {}, eh = e.holdout || {}, hi = R15.high52?.holdout || {};
+  $("#tVerdict").innerHTML = `<h3>How often were chart picks right? (3-week hold, after costs)</h3><ul>
+    <li><b>2019 to mid-2024:</b> the weekly top-5 picks went up <b>${ed.up_pct}%</b> of the time; a random liquid stock went up ${ed.base_up_pct}%. They beat NEPSE ${ed.beat_pct}% of the time (random: ${ed.base_beat_pct}%).</li>
+    <li><b>Mid-2024 to today (unseen data):</b> the picks went up only <b>${eh.up_pct}%</b> of the time vs ${eh.base_up_pct}% for random stocks, and beat NEPSE ${eh.beat_pct}% of the time (random: ${eh.base_beat_pct}%). <b>Worse than picking at random.</b></li>
+    <li><b>None of the 11 classic chart signals beat random picks reliably.</b> The closest was "near 52-week high" (up ${hi.up_pct}% vs ${hi.base_up_pct}% random in the hold-out), but that gap is within luck.</li>
+    <li><b>Why:</b> on NEPSE, stocks that look strongest on a chart are usually the most crowded, and the crowd's favourites tend to lag (see <a href="#brain">the main model</a>). Costs of ~1.4% per round trip also mean most 3-week trades lose money.</li>
+    <li><b>So treat the picks below as an experiment.</b> The live scoreboard will show whether they do better from here.</li></ul>`;
+  const P = T.picks || {};
+  $("#tDate").textContent = P.date ? `from the close of ${fmtDate(P.date)}` : "";
+  $("#tPicks").innerHTML = (P.list || []).length ? P.list.map((p, i) => `<div class="tp ${i < T.top_n ? "top" : ""}">
+      <span class="pts" title="Bullish checklist points">${"●".repeat(p.points)}${"○".repeat(8 - p.points)} ${p.points}/8</span>
+      <div class="s">${p.sym}</div><div class="sec">${esc(p.sector)}${i < T.top_n ? " · top 5" : ""}</div>
+      <div class="lv"><span>Close</span><b>${num(p.close, 1)}</b><span>Stop</span><b class="down">${num(p.stop, 1)}</b>
+        <span>Target</span><b class="up">${num(p.target, 1)}</b><span>RSI · ADX</span><b>${p.rsi} · ${p.adx}</b>
+        <span>3m vs NEPSE</span><b class="${cls(p.rs60)}">${pct(p.rs60, 1)}</b><span>50 / 200-day</span><b>${num(p.sma50, 0)} / ${num(p.sma200, 0)}</b></div>
+      <div class="tg">${p.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div></div>`).join("")
+    : `<div class="empty">No stock scores 6 or more on the checklist today.</div>`;
+  const L = T.live || {};
+  const k = (lab, v, sub) => `<div class="sp"><small>${lab}</small><div class="big">${v}</div><div class="vs">${sub}</div></div>`;
+  $("#tLiveKpi").innerHTML = k("Predictions judged", L.judged || 0, `${L.total_weeks || 0} week(s) logged`)
+    + k("Went up (after costs)", L.judged ? `${L.up} of ${L.judged}` : "—", L.judged ? `${(L.up / L.judged * 100).toFixed(0)}% · backtest: ~${eh.up_pct}%` : "first results after 3 weeks")
+    + k("Beat NEPSE", L.judged ? `${L.beat} of ${L.judged}` : "—", L.judged ? `${(L.beat / L.judged * 100).toFixed(0)}%` : "")
+    + k("Average result", L.avg_net != null ? pct(L.avg_net, 1) : "—", "per pick, after costs and tax");
+  $("#tLiveNote").textContent = L.judged ? "" : "The first week's picks are judged 3 weeks after they were made";
+  $("#tLive").innerHTML = (L.weeks || []).length ? `<thead><tr><th>Picked at close of</th><th>Picks and results</th><th>NEPSE</th><th>Status</th></tr></thead><tbody>` +
+    [...L.weeks].reverse().map(w => `<tr><td><b>${w.signal}</b></td><td>${w.picks.map(p => p.net == null ? `<span class="res o">${p.sym}</span>`
+      : `<span class="res ${p.net > 0 ? "w" : "l"}" title="Before costs ${pct(p.gross, 1)}">${p.sym} ${pct(p.net, 1)}</span>`).join("")}</td>
+      <td class="${cls(w.nepse)}">${w.nepse != null ? pct(w.nepse, 1) : "—"}</td><td class="muted">${esc(w.status || "")}</td></tr>`).join("") + "</tbody>" : "";
+  const vb2 = v => `<span class="vb ${v === "edge" ? "edge" : v === "worse than random" ? "avoid" : "noise"}">${v.toUpperCase()}</span>`;
+  const c2 = (x, k1, k2, unit) => x && x[k1] != null ? `<td><b class="${x[k1] > x[k2] ? "up" : "down"}">${x[k1]}${unit}</b> <small class="muted">vs ${x[k2]}${unit}</small></td>` : `<td class="muted">—</td>`;
+  const order = ["expert", "expert_quiet", ...Object.keys(R).filter(k => !k.startsWith("expert"))];
+  $("#tTable").innerHTML = `<thead><tr><th>Signal</th><th>Went up: design</th><th>Went up: hold-out</th><th>Beat NEPSE: hold-out</th><th>Avg result: hold-out</th><th>Trades</th><th>Verdict</th></tr></thead><tbody>` +
+    order.filter(k => R[k]).map(k => { const r = R[k], d = r.design, o = r.holdout;
+      return `<tr><td><b>${esc(r.label)}</b><small>${esc(r.desc)}</small></td>${c2(d, "up_pct", "base_up_pct", "%")}${c2(o, "up_pct", "base_up_pct", "%")}${c2(o, "beat_pct", "base_beat_pct", "%")}${c2(o, "avg_net", "base_net", "%")}<td class="muted">${((d?.n || 0) + (o?.n || 0)).toLocaleString("en-IN")}</td><td>${vb2(r.verdict)}</td></tr>`; }).join("") + "</tbody>";
+}
+
 /* ---- events */
 $$(".mode button").forEach(b => b.onclick = () => { mode = b.dataset.mode; render(); });
+$("#tH").onclick = e => { const b = e.target.closest("button"); if (!b) return; th = +b.dataset.h; $$("#tH button").forEach(x => x.classList.toggle("on", x === b)); if (TC) chartPicks(); };
 $("#qH").onclick = e => { const b = e.target.closest("button"); if (!b) return; qh = +b.dataset.h; $$("#qH button").forEach(x => x.classList.toggle("on", x === b)); if (QT) quick(); };
 $("#pfSeg").onclick = e => {
   const b = e.target.closest("button"); if (!b || b.dataset.pf === pf) return;
@@ -531,6 +573,7 @@ $("#theme").onclick = () => {
   if (RES) research();
   if (ROB) robustness();
   if (QT) quick();
+  if (TC) chartPicks();
 };
 try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
 setThemeIcon();
