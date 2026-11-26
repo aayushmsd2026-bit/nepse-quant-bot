@@ -35,7 +35,7 @@
 </header>
 
 <nav class="subnav"><div class="wrap">
-  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#quick">Quick trades</a><a href="#charts">Chart picks</a><a href="#robust">Robustness</a>
+  <a href="#overview">Overview</a><a href="#holdings">Holdings</a><a href="#brain">Bot's brain</a><a href="#nepal">NEPSE patterns</a><a href="#quick">Quick trades</a><a href="#charts">Chart picks</a><a href="#robust">Robustness</a><a href="#rlog">Research log</a>
   <a href="#log">Activity log</a><a href="#trades">Trades</a><a href="#costs">Costs</a><a href="#how">How it works</a>
 </div></nav>
 
@@ -244,7 +244,20 @@
         <p class="hint" id="rbSensNote"></p>
       </div>
     </div>
+    <div class="card mt">
+      <h3>How sure can we be? <i class="tip" data-tip="Moving-block bootstrap: the monthly results are resampled 3,000 times in 3-month blocks to see how much the yearly edge could vary by luck.">?</i></h3>
+      <div class="tablewrap"><table class="years" id="rbCI"></table></div>
+      <p class="hint">Yearly edge = average monthly difference × 12. The 90% range is where the true edge probably lies. "Chance positive" = share of resamples where the edge was above zero.</p>
+    </div>
     <div class="card mt verdict" id="rbVerdict"></div>
+  </section>
+
+  <!-- ===================== RESEARCH LOG -->
+  <section id="rlog">
+    <div class="plate" data-plate="rlog"></div>
+    <h2>Research log: everything we tested</h2>
+    <p class="lead" id="rlRule"></p>
+    <div class="card"><div class="tablewrap"><table class="years qtab" id="rlTable"></table></div></div>
   </section>
 
   <!-- ===================== LOG -->

@@ -26,6 +26,7 @@ const PLATES = {
   how: [155, [["Jasper Red", "#eb5324"], ["Benzol Green", "#00978d"], ["Deep Indigo", "#051230"]]],
   quick: [216, [["Jasper Red", "#eb5324"], ["Green", "#489b6e"], ["Black", "#111314"]]],
   charts: [182, [["Raw Sienna", "#bb7125"], ["Vandyke Brown", "#4b3317"], ["Deep Indigo", "#051230"]]],
+  rlog: [303, [["Naples Yellow", "#fbe6a0"], ["Peach Red", "#f15a30"], ["Deep Slate Olive", "#253122"], ["Neutral Gray", "#b6bfc1"]]],
   robust: [247, [["Raw Sienna", "#bb7125"], ["Apricot Yellow", "#ffdd00"], ["Benzol Green", "#00978d"], ["Deep Lyons Blue", "#1c4286"]]],
 };
 function plates() {
@@ -36,7 +37,7 @@ function plates() {
   });
 }
 
-let RES = null, ROB = null, QT = null, TC = null, th = 15, qh = 5, ALL = {}, pf = "500k";
+let RLOG = null, RES = null, ROB = null, QT = null, TC = null, th = 15, qh = 5, ALL = {}, pf = "500k";
 let META, DATA = {}, mode = "live", charts = {}, logFilter = "all", tradeFilter = "all", range = 0;
 
 async function load() {
@@ -57,6 +58,8 @@ async function load() {
   try { ROB = await get("robustness.json"); } catch (e) { ROB = null; }
   try { QT = await get("shortterm.json"); } catch (e) { QT = null; }
   try { TC = await get("technical.json"); } catch (e) { TC = null; }
+  try { RLOG = await get("research_log.json"); } catch (e) { RLOG = null; }
+  if (RLOG) researchLog();
   $("#modelTag").textContent = META.model ? "· MODEL " + META.model.toUpperCase() : "";
   render();
   if (RES) research();
@@ -320,6 +323,7 @@ function fees(S) {
     options: { responsive: true, maintainAspectRatio: false, cutout: "66%", plugins: { legend: { position: "bottom", labels: { color: css("--ink2"), boxWidth: 10, usePointStyle: true } }, tooltip: { backgroundColor: css("--ink"), titleColor: css("--bg"), bodyColor: css("--bg"), callbacks: { label: c => `${c.label}: ${rs(c.parsed)}` } } } },
   });
   $("#feeList").innerHTML = items.map(([k, n, d, c]) => `<div class="fee"><div><span class="chip" style="background:${c}"></span>${n}<small>${d}</small></div><b>${rs(f[k] || 0)}</b></div>`).join("") +
+    (S.dividends ? `<div class="fee"><div><span class="chip" style="background:var(--green)"></span>Cash dividends received<small>Paid on book-closure dates, after 5% tax. Not a cost: money in.</small></div><b class="up">+${rs(S.dividends)}</b></div>` : "") +
     `<div class="fee"><div><b>Total cost of trading</b><small>${tot ? ((tot / S.start_capital) * 100).toFixed(2) + "% of starting capital" : "Nothing spent yet"}</small></div><b>${rs(tot)}</b></div>`;
 }
 
@@ -437,12 +441,18 @@ function robustness() {
     `<tr><td class="muted">NEPSE index, same period</td><td class="muted">${pct(R.design_nepse, 0)}</td><td></td><td></td><td></td></tr></tbody>`;
   const lo = Math.min(...S.map(r => r.avg)), hi = Math.max(...S.map(r => r.avg));
   $("#rbSensNote").textContent = `Every variation returned between ${pct(lo, 0)} and ${pct(hi, 0)} in the design period, against ${pct(R.design_nepse, 0)} for NEPSE. No single setting is doing the work.`;
+  const ciRow = (lab, key) => { const xs = st.map(r => r[key]).filter(Boolean); if (!xs.length) return "";
+    const m = k => xs.reduce((a, x) => a + x[k], 0) / xs.length;
+    return `<tr><td><b>${lab}</b></td><td class="${cls(m("edge_yr"))}"><b>${pct(m("edge_yr"), 1)}/yr</b></td><td class="muted">${pct(m("lo"), 1)} to ${pct(m("hi"), 1)}</td><td>${m("p_positive").toFixed(0)}%</td><td class="muted">${xs[0].months}</td></tr>`; };
+  $("#rbCI").innerHTML = `<thead><tr><th>Bot vs …</th><th>Yearly edge</th><th>90% range</th><th>Chance positive</th><th>Months</th></tr></thead><tbody>`
+    + ciRow("Average stock, unseen data (2024–26)", "ci_avg_stock_holdout") + ciRow("NEPSE index, unseen data (2024–26)", "ci_nepse_holdout")
+    + ciRow("NEPSE index, whole period (incl. design data)", "ci_nepse_all") + "</tbody>";
   const hAvg = avg("holdout"), hN = avg("holdout_nepse"), hE = avg("holdout_ew"), fr = R.fresh;
   $("#rbVerdict").innerHTML = `<h3>The honest verdict</h3><ul>
     <li><b>What held up:</b> v3 is far better than the earlier versions in the design period, stays good when any setting is changed, and survives doubled trading costs. On unseen data, portfolios that were already running made ${pct(hAvg, 1)} on average against ${pct(hN, 1)} for NEPSE and ${pct(hE, 1)} for the average stock.</li>
     <li><b>What did not:</b> ${fr ? `a <b>fresh</b> Rs 5 lakh portfolio started on ${fr.start} made only <b>${pct(fr.holdout, 1)}</b> against ${pct(fr.holdout_nepse, 1)} for NEPSE. ` : ""}The huge design-period lead (${pct(avg("design"), 0)} vs ${pct(avg("design_nepse"), 0)}) did not carry over: in the hold-out the monthly edge is statistically zero, and in 2025–26 the big, heavily traded banks led while quiet stocks lagged. There is <b>no proof yet that this beats NEPSE going forward</b>.</li>
     <li><b>What to expect:</b> returns close to the average NEPSE stock, ahead of the index in broad rallies (2021, 2024) and behind it when a few large stocks lead (2025–26). The worst historical drop was about ${pct(S.length ? S[0].dd : null, 0)}.</li>
-    <li><b>Known gaps:</b> cash dividends are not counted (a small understatement), merged stocks are settled at their last price, and thinly traded stocks can be harder to sell in a panic than any model assumes. The strategy also stops scaling at roughly Rs 20 lakh, because quiet stocks cannot absorb bigger orders.</li>
+    <li><b>Known gaps:</b> cash dividends are now counted but NEPSE's price index excludes them (a ~1–2%/yr advantage to the bot in comparisons), merged stocks are settled at their last price, the Rs 1 lakh (10-stock) portfolio is much more luck-dependent than the 16-stock one, and thinly traded stocks can be harder to sell in a panic than any model assumes. The strategy also stops scaling at roughly Rs 20 lakh, because quiet stocks cannot absorb bigger orders.</li>
     <li><b>Why keep running it live:</b> a backtest is an argument; the live tab is the evidence. Every trading day adds to it.</li></ul>`;
 }
 
@@ -543,6 +553,15 @@ function chartPicks() {
   $("#tTable").innerHTML = `<thead><tr><th>Signal</th><th>Went up: design</th><th>Went up: hold-out</th><th>Beat NEPSE: hold-out</th><th>Avg result: hold-out</th><th>Trades</th><th>Verdict</th></tr></thead><tbody>` +
     order.filter(k => R[k]).map(k => { const r = R[k], d = r.design, o = r.holdout;
       return `<tr><td><b>${esc(r.label)}</b><small>${esc(r.desc)}</small></td>${c2(d, "up_pct", "base_up_pct", "%")}${c2(o, "up_pct", "base_up_pct", "%")}${c2(o, "beat_pct", "base_beat_pct", "%")}${c2(o, "avg_net", "base_net", "%")}<td class="muted">${((d?.n || 0) + (o?.n || 0)).toLocaleString("en-IN")}</td><td>${vb2(r.verdict)}</td></tr>`; }).join("") + "</tbody>";
+}
+
+function researchLog() {
+  const L = RLOG, order = { adopted: 0, watch: 1, collecting: 2, rejected: 3, blocked: 4 };
+  $("#rlRule").innerHTML = `${esc(L.rule)} Last updated ${L.updated}.`;
+  const c = st => L.items.filter(x => x.status === st).length;
+  $("#rlTable").innerHTML = `<thead><tr><th>Area</th><th>Idea tested</th><th>Design (2019–24)</th><th>Unseen (2024–26)</th><th>Decision</th></tr></thead><tbody>` +
+    L.items.map(x => `<tr><td class="area">${esc(x.area)}</td><td><b>${esc(x.idea)}</b><small>${esc(x.note)}</small></td><td class="muted">${esc(x.design)}</td><td class="muted">${esc(x.holdout)}</td><td><span class="st2 ${x.status}">${x.status}</span></td></tr>`).join("") +
+    `</tbody><tfoot><tr><td></td><td colspan="4" class="muted">${L.items.length} ideas: ${c("adopted")} adopted, ${c("watch")} on watch, ${c("collecting")} collecting data, ${c("rejected")} rejected, ${c("blocked")} blocked by missing data.</td></tr></tfoot>`;
 }
 
 /* ---- events */

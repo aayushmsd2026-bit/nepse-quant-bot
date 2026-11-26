@@ -17,7 +17,7 @@ import sys
 import warnings
 from pathlib import Path
 
-from . import events, fetch, floorsheet, research, shortterm, technical
+from . import companies, events, fetch, floorsheet, fundamentals, research, shortterm, technical
 from .engine import MODEL_VERSION, PORTFOLIOS, SIGNALS, Config, Engine, Market, config_for, metrics
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -159,6 +159,17 @@ def main():
             run_log.append("dividend / book-closure calendar refreshed")
     except Exception as e:
         run_log.append(f"dividend calendar refresh failed: {e}")
+    # weekly: company share data + point-in-time fundamentals snapshot
+    if "--no-fetch" not in sys.argv:
+        try:
+            last = fundamentals.last_snapshot_date()
+            today = dt.datetime.now(NPT).date()
+            if last is None or (today - dt.date.fromisoformat(last)).days >= 7:
+                companies.update()
+                syms = [x for x in mkt.symbols if bool(mkt.traded.at[latest, x])]
+                run_log.append(fundamentals.update(syms))
+        except Exception as e:
+            run_log.append(f"fundamentals snapshot failed: {e}")
     try:
         shortterm.main()
         run_log.append("short-term radar updated")

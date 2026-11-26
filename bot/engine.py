@@ -132,6 +132,7 @@ def commission(amount: float) -> float:
 
 
 SEBON_FEE = 0.00015
+DIV_TAX = 0.05        # tax on cash dividends, deducted at source
 DP_CHARGE = 25.0
 CGT_SHORT = 0.075
 CGT_LONG = 0.05
@@ -161,6 +162,7 @@ class Market:
         self.uni_mask = research.universe_mask(M)          # may BUY
         self.hold_mask = research.hold_mask(M)             # may KEEP
         self.adj_event = research.adjustment_events(M)
+        self.cash_div = self._load_cash_dividends()
         F = research.factors(M)
         self._signals = {k: F[v[2]] for k, v in SIGNALS.items()}
         self.vol20 = self.ret.rolling(20).std()
@@ -169,6 +171,25 @@ class Market:
         self.ew_index = (1 + ew).cumprod()
         self._z = {}
         self._fwd = {}
+
+    def _load_cash_dividends(self) -> dict:
+        """trading-day index -> [(symbol, Rs per share)] for cash dividends, keyed by the first
+        trading day on/after the book-closure date. Face value from the company list (default
+        Rs 100). Holders on the book-closure date receive the cash (5% tax deducted at source)."""
+        f, cfile = DATA / "dividends.csv", DATA / "companies.csv"
+        if not f.exists():
+            return {}
+        d = pd.read_csv(f).dropna(subset=["book_close"])
+        d = d[d["cash_pct"] > 0]
+        par = pd.read_csv(cfile).set_index("symbol")["paidup"].to_dict() if cfile.exists() else {}
+        idx = pd.Index(self.dates)
+        out: dict[int, list] = {}
+        for r in d.itertuples():
+            i = int(idx.searchsorted(str(r.book_close)[:10], side="left"))
+            if i < len(self.dates):
+                fv = par.get(r.symbol) or 100.0
+                out.setdefault(i, []).append((r.symbol, float(r.cash_pct) / 100 * (fv if fv > 0 else 100.0)))
+        return out
 
     def universe(self, i: int) -> list[str]:
         if i < 120:
@@ -316,6 +337,7 @@ class Engine:
             self._log(day, "data", f"NEPSE index closed at {nep:,.2f} ({ch:+.2f}%).")
 
         self._corporate_actions(day, i)
+        self._cash_dividends(day, i)
         self._execute_pending(day, i)
         self._mark(day, i)
         self._decide(day, i)
@@ -350,6 +372,22 @@ class Engine:
                 p["qty"], p["entry_price"] = new_qty, p["entry_price"] * factor
                 p["peak"] *= factor
                 p["last"] = prev
+
+    def _cash_dividends(self, day, i):
+        """Credit cash dividends for stocks held through their book-closure date."""
+        s = self.s
+        for sym, per_share in self.m.cash_div.get(i, []):
+            p = s["positions"].get(sym)
+            if not p or self.m.didx[p["entry_date"]] >= i:
+                continue
+            gross = p["qty"] * per_share
+            net = gross * (1 - DIV_TAX)
+            s["cash"] += net
+            s["dividends"] = s.get("dividends", 0.0) + net
+            p["dividends"] = p.get("dividends", 0.0) + net
+            s["fees"]["div_tax"] = s["fees"].get("div_tax", 0.0) + gross - net
+            self._log(day, "buy", f"DIVIDEND {sym}: book closure today, Rs {per_share:,.2f}/share cash dividend on "
+                      f"{p['qty']} shares = Rs {net:,.0f} after 5% tax.", sym=sym)
 
     def _execute_pending(self, day, i):
         m, cfg, s = self.m, self.cfg, self.s
@@ -804,7 +842,8 @@ def metrics(state: dict, split: str | None = None) -> dict:
         "best_trade": max(closed, key=lambda t: t["pnl"]) if closed else None,
         "worst_trade": min(closed, key=lambda t: t["pnl"]) if closed else None,
         "realized_pnl": round(sum(t["pnl"] for t in closed), 2), "trading_days": len(eq),
-        "costs_total": round(sum(state["fees"].values()), 2),
+        "costs_total": round(sum(v for k, v in state["fees"].items() if k != "div_tax"), 2),
+        "dividends": round(state.get("dividends", 0.0), 2),
     })
     if split and eq["date"].iloc[0] < split < eq["date"].iloc[-1]:
         a = eq[eq["date"] <= split]

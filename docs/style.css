@@ -336,3 +336,12 @@ td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;font-varia
 .tp .tg span{font:500 10.5px "IBM Plex Sans";padding:2px 6px;border-radius:2px;background:color-mix(in srgb,var(--c2) 22%,transparent);color:var(--ink)}
 .res{font:500 12px "IBM Plex Mono";padding:2px 6px;border-radius:2px;margin:1px;display:inline-block;border:1px solid var(--line)}
 .res.w{background:var(--green-s);color:var(--green)}.res.l{background:var(--red-s);color:var(--red)}.res.o{color:var(--ink2)}
+
+/* ---------- research log */
+.st2{display:inline-block;font:600 10px "IBM Plex Mono";letter-spacing:.06em;padding:2px 7px;border-radius:2px;text-transform:uppercase}
+.st2.adopted{background:var(--green-s);color:var(--green)}.st2.rejected{background:var(--red-s);color:var(--red)}
+.st2.watch,.st2.collecting{background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber)}
+.st2.blocked{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--ink2)}
+#rlTable td{white-space:normal;vertical-align:top}#rlTable td.area{font:600 10.5px "IBM Plex Mono";letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+#rlTable td small{max-width:420px}
+#rlTable td,#rlTable th{text-align:left}

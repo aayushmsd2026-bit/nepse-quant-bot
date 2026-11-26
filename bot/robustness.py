@@ -47,6 +47,22 @@ SENSITIVITY = [
 ]
 
 
+def bootstrap_ci(x, n=3000, block=3, seed=7):
+    """90% confidence interval for the yearly edge (mean monthly excess x 12), by moving-block
+    bootstrap (blocks of 3 months keep short-run streaks together)."""
+    import numpy as np
+    x = np.asarray(x, dtype=float)
+    if len(x) < 12:
+        return None
+    rng = np.random.default_rng(seed)
+    k = int(np.ceil(len(x) / block))
+    starts = rng.integers(0, len(x) - block + 1, size=(n, k))
+    sims = np.array([np.concatenate([x[s:s + block] for s in row])[:len(x)].mean() for row in starts]) * 12 * 100
+    lo, hi = np.percentile(sims, [5, 95])
+    return {"edge_yr": round(float(x.mean() * 12 * 100), 1), "lo": round(float(lo), 1), "hi": round(float(hi), 1),
+            "p_positive": round(float((sims > 0).mean()) * 100), "months": int(len(x))}
+
+
 def _run(args):
     label, kw, start, end = args
     e = E.Engine(M, E.Config(**kw), log_days=2)
@@ -77,6 +93,11 @@ def _run(args):
                    holdout_sharpe=H["sharpe"], holdout_nepse_sharpe=H["nepse_sharpe"])
         m = eq.assign(month=eq.date.str[:7]).groupby("month").agg(e=("equity", "last"), n=("nepse", "last"))
         x = (m.e.pct_change() - m.n.pct_change()).dropna()
+        mm = eq.assign(month=eq.date.str[:7]).groupby("month").agg(e=("equity", "last"), n=("nepse", "last"), w=("ew", "last"))
+        for bench, col in (("nepse", "n"), ("avg_stock", "w")):
+            xs = (mm.e.pct_change() - mm[col].pct_change()).dropna()
+            for name, sl in (("all", xs), ("holdout", xs[xs.index > SPLIT[:7]])):
+                out[f"ci_{bench}_{name}"] = bootstrap_ci(sl.values)
         for name, sl in (("all", x), ("holdout", x[x.index > SPLIT[:7]])):
             t = sl.mean() / (sl.std() / math.sqrt(len(sl))) if len(sl) > 5 and sl.std() > 0 else 0
             out[f"edge_{name}"] = {"monthly_pct": round(float(sl.mean()) * 100, 2), "t": round(float(t), 2),
@@ -109,6 +130,9 @@ def main(procs: int = 4):
            "design_nepse": round(df.design_nepse.mean(), 1), "design_ew": round(df.design_ew.mean(), 1),
            "fresh": fresh}
     print("fresh Rs 5 lakh start on the hold-out:", fresh)
+    for r in frozen:
+        print(r["start"], "CI vs NEPSE hold-out", r.get("ci_nepse_holdout"), "| vs avg stock hold-out", r.get("ci_avg_stock_holdout"),
+              "| vs NEPSE all", r.get("ci_nepse_all"))
     OUT.write_text(json.dumps(out, separators=(",", ":"), default=float))
     print(f"NEPSE design {out['design_nepse']}%  avg stock {out['design_ew']}%")
     for s in sens:

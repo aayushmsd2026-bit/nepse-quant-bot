@@ -1,0 +1,182 @@
+{
+ "updated": "2026-11-26",
+ "rule": "Every idea is judged on the design period (2019 to mid-2024) first. Only ideas that work there are adopted; the hold-out (mid-2024 onward) is a check, never a reason to adopt. IC = rank correlation with the next 20 trading days' returns (0.05+ is useful on NEPSE).",
+ "items": [
+  {
+   "area": "Signals",
+   "idea": "Crowd attention (heavily traded stocks lag)",
+   "design": "IC +0.083 (t 2.7)",
+   "holdout": "IC +0.033",
+   "status": "adopted",
+   "note": "The core of model v3."
+  },
+  {
+   "area": "Signals",
+   "idea": "True market capitalisation instead of turnover",
+   "design": "IC +0.052",
+   "holdout": "IC −0.061",
+   "status": "rejected",
+   "note": "Weaker than turnover and reversed on unseen data. Crowding, not size, is what matters."
+  },
+  {
+   "area": "Signals",
+   "idea": "Crowd signal made sector-neutral",
+   "design": "IC −0.003",
+   "holdout": "IC +0.033",
+   "status": "rejected",
+   "note": "Key insight: most of the crowd edge comes from avoiding crowded SECTORS (the big banks). That is why the model lagged in 2025–26, when banks led."
+  },
+  {
+   "area": "Signals",
+   "idea": "Share / free-float turnover (turnover ÷ market cap)",
+   "design": "IC +0.004",
+   "holdout": "IC +0.092",
+   "status": "watch",
+   "note": "Worked only on unseen data; adopting it now would be curve-fitting. Re-tested as data grows."
+  },
+  {
+   "area": "Signals",
+   "idea": "Dividend payers, cash yield, bonus history",
+   "design": "IC +0.009 to +0.023",
+   "holdout": "IC +0.086 to +0.095",
+   "status": "watch",
+   "note": "Strong in 2024–26 only, a possible regime shift towards quality. Not adopted on hold-out evidence alone."
+  },
+  {
+   "area": "Signals",
+   "idea": "Low share price",
+   "design": "IC −0.014",
+   "holdout": "IC +0.138",
+   "status": "watch",
+   "note": "Same story: a 2024–26 effect that did not exist before."
+  },
+  {
+   "area": "Signals",
+   "idea": "Promoter holding %",
+   "design": "IC −0.019",
+   "holdout": "IC −0.018",
+   "status": "rejected",
+   "note": "No effect."
+  },
+  {
+   "area": "Modelling",
+   "idea": "Machine learning (gradient boosting, ridge) on 26 signals, walk-forward",
+   "design": "IC 0.078 / 0.090 vs v3 0.156",
+   "holdout": "IC 0.096 / 0.158 vs v3 0.189",
+   "status": "rejected",
+   "note": "The simple fixed-weight score beat both models. About 200 tradable stocks is too little data for complex models; they learn noise."
+  },
+  {
+   "area": "Modelling",
+   "idea": "Re-learning signal weights every day",
+   "design": "+163% vs +238% fixed",
+   "holdout": "—",
+   "status": "rejected",
+   "note": "Chasing recent signal performance added noise and a deeper worst drop."
+  },
+  {
+   "area": "Risk",
+   "idea": "Stop-losses (15% fixed, 22% trailing)",
+   "design": "+186% vs +238% without",
+   "holdout": "—",
+   "status": "rejected",
+   "note": "Stopped-out stocks did not keep falling; stops locked in losses and doubled trading."
+  },
+  {
+   "area": "Risk",
+   "idea": "Market timing (index trend / bear-market cash filter)",
+   "design": "worst drop unchanged",
+   "holdout": "−8% vs +29% buy-and-hold",
+   "status": "rejected",
+   "note": "Cost return without reducing the worst drop."
+  },
+  {
+   "area": "Realism",
+   "idea": "Count cash dividends (after 5% tax) on book-closure dates",
+   "design": "+278% (was +268%)",
+   "holdout": "small change",
+   "status": "adopted",
+   "note": "Real money investors receive. NEPSE's index excludes dividends, so the bot now has a ~1–2%/yr structural advantage in comparisons."
+  },
+  {
+   "area": "Realism",
+   "idea": "Square-root market-impact trading costs",
+   "design": "+231% with costs doubled",
+   "holdout": "—",
+   "status": "adopted",
+   "note": "Results survive doubled costs."
+  },
+  {
+   "area": "Confidence",
+   "idea": "Bootstrap 90% ranges for the yearly edge",
+   "design": "vs NEPSE +8 to +11%/yr",
+   "holdout": "vs NEPSE ≈0 (−7 to +16); vs avg stock +4.5 to +5.6 (−1 to +15)",
+   "status": "adopted",
+   "note": "Stock selection very likely adds value (~93% chance vs the average stock); beating the cap-weighted NEPSE index is a coin flip."
+  },
+  {
+   "area": "Confidence",
+   "idea": "How fragile is the Rs 1 lakh (10-stock) portfolio?",
+   "design": "+220% to +250%",
+   "holdout": "+19% to +45% depending on start date / a single different pick",
+   "status": "adopted",
+   "note": "With only 10 stocks, one different pick in 2021 changed the 2024–26 result by 16 points. The 16-stock Rs 5 lakh portfolio stays within +33% to +37%. More stocks = less luck; add capital and positions when you can."
+  },
+  {
+   "area": "Short-term",
+   "idea": "11 quick-trade setups (3–10 days)",
+   "design": "none profitable after costs",
+   "holdout": "none",
+   "status": "rejected",
+   "note": "Chasing spikes reliably loses. See Quick trades."
+  },
+  {
+   "area": "Short-term",
+   "idea": "Trading the public dividend calendar",
+   "design": "−1.1% vs market",
+   "holdout": "+0.4% vs market",
+   "status": "rejected",
+   "note": "Priced in before it is public."
+  },
+  {
+   "area": "Short-term",
+   "idea": "Classic chart signals and checklist (2–3 weeks)",
+   "design": "47% up vs 44% random",
+   "holdout": "33% up vs 37% random",
+   "status": "watch",
+   "note": "Same as random. Kept as an experiment with a live scoreboard."
+  },
+  {
+   "area": "Data",
+   "idea": "Broker floorsheet (who buys before news)",
+   "design": "—",
+   "holdout": "—",
+   "status": "collecting",
+   "note": "Only today's sheet is published; saved daily since 2026-11-25. Testable in 6–12 months, or now if NepseAlpha's history can be exported."
+  },
+  {
+   "area": "Data",
+   "idea": "Quarterly fundamentals (EPS, P/E, P/B, ROE, NPL, bank rates)",
+   "design": "—",
+   "holdout": "—",
+   "status": "collecting",
+   "note": "Only the latest quarter is published; point-in-time snapshots saved weekly since 2026-11-26 (266 companies). Enables value, quality and earnings-surprise tests later."
+  },
+  {
+   "area": "Data",
+   "idea": "Interest rates / liquidity (NRB, interbank)",
+   "design": "—",
+   "holdout": "—",
+   "status": "blocked",
+   "note": "ShareSansar's rate feed errors. Bank base rates and cost of funds are now collected from quarterly reports as a substitute; NRB monthly data would need a manual download."
+  },
+  {
+   "area": "Data",
+   "idea": "Intraday prices and market depth",
+   "design": "—",
+   "holdout": "—",
+   "status": "blocked",
+   "note": "Not archived publicly, so cannot be backtested."
+  }
+ ]
+}

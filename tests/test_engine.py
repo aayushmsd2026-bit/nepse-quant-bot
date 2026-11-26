@@ -61,7 +61,7 @@ def test_accounting_identity(run):
     s = eng.s
     realised = sum(t["pnl"] for t in s["trades"] if t.get("status") == "FILLED" and t["side"] == "SELL")
     unrealised = sum(p["qty"] * p["last"] - p["cost"] for p in s["positions"].values())
-    assert eng.equity() == pytest.approx(s["start_capital"] + realised + unrealised, abs=5.0)
+    assert eng.equity() == pytest.approx(s["start_capital"] + realised + unrealised + s.get("dividends", 0.0), abs=5.0)
     assert s["cash"] >= -1e-6
     assert all(v >= 0 for v in s["fees"].values())
 
@@ -217,3 +217,10 @@ def test_floorsheet_summary():
     s = summarise("ABC", rows)
     assert s["qty"] == 200 and s["buyers"] == 2 and s["top_buyer"] == "1"
     assert s["top_buyer_pct"] == 75.0 and s["top_net_broker"] == "1" and s["top_net_pct"] == 50.0
+
+
+def test_cash_dividends_credited(run):
+    eng, _, _ = run
+    if eng.m.cash_div:
+        assert eng.s.get("dividends", 0) > 0, "held stocks paid dividends in this window but none were credited"
+        assert eng.s["fees"].get("div_tax", 0) == pytest.approx(eng.s["dividends"] / 0.95 * 0.05, rel=1e-6)

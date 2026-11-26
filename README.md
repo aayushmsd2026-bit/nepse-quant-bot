@@ -97,6 +97,21 @@ The dashboard's **Quick trades** section shows all of this plus a daily radar of
 
 **Backtest (buy next-day VWAP, hold 15 trading days, after costs):** the weekly top 5 went up 47% of the time in 2019–mid-2024 (random stock: 44%) but only 33% in mid-2024–2026 (random: 37%). None of the 11 chart signals beat random picks reliably. The picks are shown as an experiment, and every week's top 5 is logged in `data/swing_log.json` and judged 15 trading days later, so the dashboard keeps a live, uneditable scoreboard.
 
+## Research round 4: what else we tested (Nov 2026)
+
+Full table on the dashboard's **Research log**. Highlights:
+- **Machine learning loses to the simple score.** Walk-forward gradient boosting and ridge on 26 signals: design IC 0.078 / 0.090 vs 0.156 for v3's fixed weights.
+- **The crowd edge is mostly a sector effect.** Made sector-neutral it vanishes in the design period. That explains the 2025–26 lag, when the big banks led.
+- **True market cap, free-float turnover, dividend yield, bonus history and low price** were tested. None works in the design period. Several worked strongly in 2024–26 only, so they're on a watch list, not adopted.
+- **Cash dividends are now counted** (after 5% tax, on book-closure dates; `data/dividends.csv`). Design-period result +278% (was +268%).
+- **Confidence (moving-block bootstrap):** on unseen data the bot beats the average stock by ~+5%/yr (90% range −1% to +15%, ~93% chance positive), but its edge over the NEPSE index is ≈0 (−7% to +16%).
+- **The Rs 1 lakh, 10-stock portfolio is path-sensitive:** its unseen-data result ranges from +19% to +45% depending on a single different pick.
+
+New data collectors (history is not published, so it is built from now on):
+- `bot/floorsheet.py`: daily broker floorsheet summary
+- `bot/fundamentals.py`: weekly point-in-time quarterly metrics (EPS, P/E, P/B, ROE, ROA, NPL, bank base rate and cost of funds) for ~266 companies
+- `bot/companies.py`: listed and free-float shares
+
 ## Run it yourself
 
 ```bash
